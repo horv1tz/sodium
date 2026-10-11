@@ -6,6 +6,7 @@ import net.caffeinemc.mods.sodium.client.SodiumClientMod;
 import net.caffeinemc.mods.sodium.client.checks.ResourcePackScanner;
 import net.caffeinemc.mods.sodium.client.compatibility.environment.OsUtils;
 import net.caffeinemc.mods.sodium.client.config.ConfigManager;
+import net.caffeinemc.mods.sodium.client.d3d12.integration.D3D12Selection;
 import net.caffeinemc.mods.sodium.client.gui.SodiumConfigBuilder;
 import net.caffeinemc.mods.sodium.client.gui.SodiumOptions;
 import net.caffeinemc.mods.sodium.client.platform.PlatformHelper;
@@ -36,6 +37,8 @@ public class MinecraftMixin {
      */
     @Inject(method = "onGameLoadFinished", at = @At("HEAD"))
     private void postInit(GameLoadCookie cookie, CallbackInfo ci) {
+        D3D12Selection.onGameLoadFinished();
+
         ResourcePackScanner.checkIfCoreShaderLoaded(this.resourceManager);
 
         ConfigManager.registerConfigsLate();
