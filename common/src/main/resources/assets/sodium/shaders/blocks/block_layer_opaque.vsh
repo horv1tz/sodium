@@ -15,7 +15,7 @@ layout(location = 3) out float fadeFactor;
 
 uniform isamplerBuffer u_SectionTimeInfo;
 
-#if defined(VULKAN) || defined(D3D12)
+#ifdef VULKAN
 layout(push_constant) uniform PC {
     vec3 u_RegionOffset;
     int u_CurrentTime;
