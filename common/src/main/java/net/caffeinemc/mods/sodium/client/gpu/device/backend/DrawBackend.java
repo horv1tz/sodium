@@ -11,6 +11,19 @@ public enum DrawBackend {
     OPENGL,
     VK_MULTIDRAW,
     VK_INDIRECT,
+    /**
+     * Terrain rendering through a Direct3D 12 device. The game does not ship one, so it has to come from a backend
+     * provided elsewhere, which must:
+     * <ul>
+     *     <li>report a backend name (or have a device class name) containing "D3D12", "Direct3D 12" or "DirectX 12".
+     *     Devices reporting OpenGL or Vulkan are never selected, even when translated onto Direct3D 12;</li>
+     *     <li>expose {@code multiDrawIndirect} in its device features;</li>
+     *     <li>implement {@code RenderPass#drawIndexedIndirect} as an {@code ExecuteIndirect} over
+     *     {@code D3D12_DRAW_INDEXED_ARGUMENTS} commands, and {@code RenderPass#pushConstants} as root constants;</li>
+     *     <li>define {@code D3D12} (or {@code VULKAN}) when compiling shaders, so that the terrain vertex shader
+     *     declares its push constant block.</li>
+     * </ul>
+     */
     D3D12_INDIRECT;
 
     public static final DrawBackend BACKEND = chooseBackend();
