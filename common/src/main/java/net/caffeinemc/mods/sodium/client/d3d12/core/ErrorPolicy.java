@@ -125,7 +125,8 @@ public final class ErrorPolicy {
 
     /**
      * Builds the exception for a wait that exceeded {@code submit()}'s cap: device loss if the device was removed,
-     * otherwise an {@link IllegalStateException}. Does not change the policy state by itself.
+     * otherwise an {@link IllegalStateException}. A device loss makes the policy FAILED (it is sticky, like every other
+     * device loss); the plain timeout does not change the state by itself - the caller decides with {@link #fail}.
      */
     public RuntimeException timeout(String what) {
         int reason = this.removedReason();

@@ -2,8 +2,10 @@
 package net.caffeinemc.mods.sodium.client.d3d12.backend;
 
 import com.mojang.renderpearl.api.device.GpuDebugOptions;
+import net.caffeinemc.mods.sodium.client.d3d12.core.D3D12Log;
 import org.jspecify.annotations.Nullable;
 
+import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 
 /**
@@ -62,7 +64,16 @@ public record DeviceOptions(
     /** Options for the game: Minecraft's debug options plus the system properties. */
     public static DeviceOptions from(GpuDebugOptions debug) {
         String cache = System.getProperty("sodium.d3d12.shaderCache");
-        Path cacheDir = cache == null || cache.equalsIgnoreCase("off") || cache.isBlank() ? null : Path.of(cache);
+        Path cacheDir = null;
+
+        if (cache != null && !cache.equalsIgnoreCase("off") && !cache.isBlank()) {
+            try {
+                cacheDir = Path.of(cache);
+            } catch (InvalidPathException e) {
+                // a malformed property must degrade to "no disk cache", never prevent the backend from starting
+                D3D12Log.warn("Ignoring sodium.d3d12.shaderCache: not a valid path ({})", e.getReason());
+            }
+        }
 
         return new DeviceOptions(
                 debug.logLevel(),

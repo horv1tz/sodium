@@ -56,6 +56,9 @@ public final class ResourceStateTracker {
     /**
      * Ensures {@code subresource} (or every subresource for {@link ResourceStates#ALL}) will be in {@code state} by the
      * time the next flushed command executes.
+     *
+     * @throws IllegalArgumentException if the subresource does not exist (checked before anything changes: a request that
+     *                                  named a non-existent subresource would otherwise desynchronise tracker and GPU)
      */
     public void require(TrackedResource resource, int subresource, int state) {
         if (subresource == ResourceStates.ALL) {
@@ -63,14 +66,37 @@ public final class ResourceStateTracker {
                 this.requireOne(resource, s, state);
             }
         } else {
+            checkSubresource(resource, subresource);
             this.requireOne(resource, subresource, state);
         }
     }
 
-    /** {@link #require} for {@code count} consecutive subresources starting at {@code firstSubresource}. */
+    /**
+     * {@link #require} for {@code count} consecutive subresources starting at {@code firstSubresource}.
+     *
+     * @throws IllegalArgumentException if the range is not inside the resource (nothing is applied then, not even the part
+     *                                  that is inside)
+     */
     public void requireRange(TrackedResource resource, int firstSubresource, int count, int state) {
-        for (int s = firstSubresource; s < firstSubresource + count; s++) {
+        checkRange(resource, firstSubresource, count);
+
+        for (int s = firstSubresource, end = firstSubresource + count; s < end; s++) {
             this.requireOne(resource, s, state);
+        }
+    }
+
+    private static void checkSubresource(TrackedResource resource, int subresource) {
+        if (subresource < 0 || subresource >= resource.subresourceCount()) {
+            throw new IllegalArgumentException("subresource " + subresource + " does not exist in a resource with "
+                    + resource.subresourceCount() + " subresource(s)");
+        }
+    }
+
+    private static void checkRange(TrackedResource resource, int first, int count) {
+        // long arithmetic: first + count must not wrap around into a valid-looking number
+        if (first < 0 || count < 0 || (long) first + count > resource.subresourceCount()) {
+            throw new IllegalArgumentException("subresource range [" + first + ", +" + count + ") is not inside a resource with "
+                    + resource.subresourceCount() + " subresource(s)");
         }
     }
 
@@ -87,7 +113,7 @@ public final class ResourceStateTracker {
      */
     public void requireMips(TrackedResource resource, int mipLevels, int baseMip, int mipCount, int layers, int state) {
         if (mipLevels < 1 || layers < 1 || (long) mipLevels * layers != resource.subresourceCount() || baseMip < 0
-                || mipCount < 1 || baseMip + mipCount > mipLevels) {
+                || mipCount < 1 || (long) baseMip + mipCount > mipLevels) {
             throw new IllegalArgumentException("invalid mip range [" + baseMip + ", +" + mipCount + ") of " + mipLevels
                     + " mips x " + layers + " layers for a resource with " + resource.subresourceCount() + " subresources");
         }
@@ -104,13 +130,13 @@ public final class ResourceStateTracker {
      * {@code baseMip} of layer 0)
      */
     public static boolean subresourceInMipRange(int subresource, int mipLevels, int baseMip, int mipCount, int layers) {
-        if (subresource < 0 || subresource >= mipLevels * layers) {
+        if (subresource < 0 || mipLevels < 1 || subresource >= (long) mipLevels * layers) {
             return false;
         }
 
         int mip = subresource % mipLevels;
 
-        return mip >= baseMip && mip < baseMip + mipCount;
+        return mip >= baseMip && mip < (long) baseMip + mipCount;
     }
 
     private void requireOne(TrackedResource r, int s, int wanted) {
@@ -141,6 +167,12 @@ public final class ResourceStateTracker {
         this.enqueue(r, s, current, wanted);
     }
 
+    /**
+     * The per-subresource array is allocated by the first transition that makes the states differ and then kept for the
+     * life of the resource: collapsing it back to the uniform scalar when the states become equal again (what an earlier
+     * version did after every flush) made every "render into one mip, then sample all mips" cycle allocate a new array
+     * (about 170 bytes per frame in the steady-state test), on the render thread's hot path.
+     */
     private void setState(TrackedResource r, int s, int state) {
         if (r.perSub != null) {
             r.perSub[s] = state;
@@ -197,6 +229,7 @@ public final class ResourceStateTracker {
     /**
      * @return the tracked state of one subresource (including pending transitions). For a resource whose subresources
      * differ, {@code ALL} is not meaningful and the first subresource is returned.
+     * @throws IllegalArgumentException if the subresource does not exist (the same for uniform and split resources)
      */
     public int stateOf(TrackedResource resource, int subresource) {
         return resource.state(subresource == ResourceStates.ALL ? 0 : subresource);
@@ -270,30 +303,10 @@ public final class ResourceStateTracker {
             TrackedResource r = this.resources[i];
 
             r.pendingIdx[this.subresources[i]] = -1;
-            this.collapseIfUniform(r);
             this.resources[i] = null;
         }
 
         this.count = 0;
-    }
-
-    private void collapseIfUniform(TrackedResource r) {
-        int[] states = r.perSub;
-
-        if (states == null) {
-            return;
-        }
-
-        int first = states[0];
-
-        for (int i = 1; i < states.length; i++) {
-            if (states[i] != first) {
-                return;
-            }
-        }
-
-        r.uniformState = first;
-        r.perSub = null;
     }
 
     private void ensureNativeCapacity(int barriers) {

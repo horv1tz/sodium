@@ -23,7 +23,9 @@ import java.util.List;
  *     closes its buffer) neither corrupts the iteration nor runs in the same drain - the new entry carries the newer
  *     frame tag.</li>
  *     <li>Every entry runs in its own try/catch; an exception is logged and the rest of the batch still runs (a lost
- *     {@code Release} is a leak, a lost callback is a lost screenshot). {@link VirtualMachineError}s are rethrown.</li>
+ *     {@code Release} is a leak, a lost callback is a lost screenshot). {@link VirtualMachineError}s are rethrown <em>after</em>
+ *     the rest of the batch ran: the entries behind the failing one are native releases and callbacks that nothing else
+ *     would ever run.</li>
  *     <li>{@link #add} is thread-safe; {@link #drain} and {@link #drainAll} run on the render thread (at shutdown
  *     {@code DeviceContext.defer} may call {@link #drainAll} from a foreign thread after the GPU went idle).</li>
  *     <li>Cost: {@code drain} is O(1) when nothing is due (the smallest pending tag is tracked) and O(n) in the number of
@@ -150,14 +152,25 @@ public final class DeferralQueue {
     }
 
     private static void runAll(List<Entry> batch) {
+        VirtualMachineError fatal = null;
+
         for (int i = 0; i < batch.size(); i++) {
             try {
                 batch.get(i).action().run();
             } catch (VirtualMachineError error) {
-                throw error;
+                // keep going: dropping the rest of the batch would leak every object queued behind this entry
+                if (fatal == null) {
+                    fatal = error;
+                } else {
+                    fatal.addSuppressed(error);
+                }
             } catch (Throwable t) {
                 D3D12Log.error("Deferred D3D12 action failed", t);
             }
+        }
+
+        if (fatal != null) {
+            throw fatal;
         }
     }
 }

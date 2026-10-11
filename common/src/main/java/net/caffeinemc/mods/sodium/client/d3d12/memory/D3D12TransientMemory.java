@@ -328,6 +328,11 @@ public final class D3D12TransientMemory implements TransientMemory {
     private GpuBufferSlice upload(List<ByteBuffer> data, long alignment, int usage, long minimumAllocation, long elementSize) {
         this.checkOpen();
 
+        // validated first: the running total below rounds up to the alignment and must not overflow on a absurd one
+        if (alignment < 1L || alignment > MAX_GPU_ALIGNMENT) {
+            throw new IllegalArgumentException("Alignment requirement over maximum supported alignment: " + alignment);
+        }
+
         // the total is the sum of the elements with the running offset rounded up to the alignment after each one
         long total = 0L;
 

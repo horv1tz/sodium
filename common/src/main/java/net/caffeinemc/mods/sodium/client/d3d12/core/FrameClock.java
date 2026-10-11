@@ -183,14 +183,15 @@ public final class FrameClock implements AutoCloseable {
                 }
             } while (!reached);
         } else {
-            long millis = Math.max(1L, (timeoutNs + 999_999L) / 1_000_000L);
-            reached = this.frameFence.waitFor(frame, millis);
+            reached = this.frameFence.waitFor(frame, millisCeil(timeoutNs));
         }
 
         this.poll();
         this.errors.checkDeviceRemoved("fence wait");
 
-        return reached && this.completed >= frame;
+        // the poll above is the truth: a frame that completed in the instant between a timed-out wait and the poll is complete
+        // (answering "timed out" there would make submit() throw for a GPU that kept up)
+        return this.completed >= frame;
     }
 
     /** Queues {@code Signal(frame fence, current)} and makes the next frame current. Called by {@code submit()} only. */
@@ -212,9 +213,7 @@ public final class FrameClock implements AutoCloseable {
 
         this.auxFence.signalOnQueue(value);
 
-        long millis = Math.max(1L, (timeoutNs + 999_999L) / 1_000_000L);
-
-        if (!this.auxFence.waitFor(value, millis)) {
+        if (!this.auxFence.waitFor(value, millisCeil(timeoutNs))) {
             throw this.errors.timeout("flushing the GPU");
         }
 
@@ -222,9 +221,34 @@ public final class FrameClock implements AutoCloseable {
         this.poll();
     }
 
+    /**
+     * Nanoseconds to milliseconds, rounded up and at least 1; saturating instead of overflowing, so that a caller who
+     * passes a huge timeout ({@code Long.MAX_VALUE} as "practically forever") waits long, not 1 ms. The native wait treats
+     * {@code >= 2^32 - 2} ms as infinite.
+     */
+    private static long millisCeil(long timeoutNs) {
+        long millis = timeoutNs / 1_000_000L;
+
+        if (timeoutNs % 1_000_000L > 0L) {
+            millis++;
+        }
+
+        return Math.max(1L, millis);
+    }
+
+    /** Releases both fences; a failure of the first release does not skip the second. Never throws. */
     @Override
     public void close() {
-        this.frameFence.close();
-        this.auxFence.close();
+        try {
+            this.frameFence.close();
+        } catch (RuntimeException e) {
+            D3D12Log.warn("Failed to release the frame fence: {}", e.toString());
+        } finally {
+            try {
+                this.auxFence.close();
+            } catch (RuntimeException e) {
+                D3D12Log.warn("Failed to release the auxiliary fence: {}", e.toString());
+            }
+        }
     }
 }

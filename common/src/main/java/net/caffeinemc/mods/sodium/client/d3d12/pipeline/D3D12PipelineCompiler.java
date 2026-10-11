@@ -133,16 +133,25 @@ public final class D3D12PipelineCompiler implements AutoCloseable {
 
             stageName = "vertex";
 
-            TranslatedStage vertex = ShaderTranslator.translate(info, vertexShader, assignment);
-
-            hlsl = vertex.hlsl();
-
-            byte[] vertexDxbc = this.hlsl.compile(vertex.hlsl(), "main", "vs_5_0", name + "/vertex");
+            TranslatedStage translatedVertex = ShaderTranslator.translate(info, vertexShader, assignment);
 
             stageName = "fragment";
 
             TranslatedStage fragment = ShaderTranslator.translate(info, fragmentShader, assignment);
 
+            // both stages are translated before either is compiled: the vertex stage loses the outputs the fragment stage
+            // does not read, so that the two signatures use the same registers (see StageLinker; vkd3d links by register)
+            String linkedVertex = StageLinker.pruneUnreadVertexOutputs(translatedVertex.hlsl(), fragment.hlsl());
+            TranslatedStage vertex = linkedVertex == translatedVertex.hlsl() ? translatedVertex : new TranslatedStage(translatedVertex.stage(),
+                    linkedVertex, translatedVertex.activeSlots(), translatedVertex.cubeSlots(), translatedVertex.texelBaseTypes(),
+                    translatedVertex.usesVertexInfo(), translatedVertex.pushConstantBytes());
+
+            stageName = "vertex";
+            hlsl = vertex.hlsl();
+
+            byte[] vertexDxbc = this.hlsl.compile(vertex.hlsl(), "main", "vs_5_0", name + "/vertex");
+
+            stageName = "fragment";
             hlsl = fragment.hlsl();
 
             byte[] pixelDxbc = this.hlsl.compile(fragment.hlsl(), "main", "ps_5_0", name + "/fragment");

@@ -167,9 +167,12 @@ public final class CopyEngine {
         return src.hostVisible() ? Mode.CPU_COPY : Mode.REJECT_DEVICE_LOCAL_SOURCE;
     }
 
-    /** @return tier A of {@code copyBufferToTexture}: the row stride is 256-aligned and the start 512-aligned */
+    /**
+     * @return tier A of {@code copyBufferToTexture}: the row stride is 256-aligned (and fits the {@code UINT RowPitch} of a
+     * footprint as a positive {@code int}) and the start 512-aligned
+     */
     public static boolean isDirectTextureSource(long start, long stride) {
-        return stride % Alignment.TEXTURE_ROW_PITCH == 0L && start % Alignment.TEXTURE_PLACEMENT == 0L;
+        return stride % Alignment.TEXTURE_ROW_PITCH == 0L && stride <= Integer.MAX_VALUE && start % Alignment.TEXTURE_PLACEMENT == 0L;
     }
 
     /** @return the direct path of {@code copyTextureToBuffer}: READBACK destination, 256-aligned rows, 512-aligned offset */
@@ -184,11 +187,19 @@ public final class CopyEngine {
      */
     public static SourceWindow sourceWindow(long sliceOffset, int sourceX, int sourceY, int sourceWidth, int copyWidth,
                                             int copyHeight, int bytesPerTexel) {
-        long stride = (long) sourceWidth * bytesPerTexel;
-        long start = sliceOffset + ((long) sourceX + (long) sourceY * sourceWidth) * bytesPerTexel;
-        long end = start + (copyHeight - 1L) * stride + (long) copyWidth * bytesPerTexel;
+        // sourceY * sourceWidth * bytesPerTexel needs up to 66 bits for int arguments: refuse instead of wrapping around
+        try {
+            long stride = Math.multiplyExact((long) sourceWidth, (long) bytesPerTexel);
+            long texels = Math.addExact((long) sourceX, Math.multiplyExact((long) sourceY, (long) sourceWidth));
+            long start = Math.addExact(sliceOffset, Math.multiplyExact(texels, (long) bytesPerTexel));
+            long rows = Math.multiplyExact(copyHeight - 1L, stride);
+            long end = Math.addExact(start, Math.addExact(rows, Math.multiplyExact((long) copyWidth, (long) bytesPerTexel)));
 
-        return new SourceWindow(start, stride, end);
+            return new SourceWindow(start, stride, end);
+        } catch (ArithmeticException e) {
+            throw new IllegalArgumentException("The copy window of " + copyWidth + "x" + copyHeight + " texels at (" + sourceX + ", " + sourceY
+                    + ") of a " + sourceWidth + " texel wide source at offset " + sliceOffset + " does not fit 64 bits", e);
+        }
     }
 
     // ------------------------------------------------------------------------------------------------------------
@@ -201,7 +212,8 @@ public final class CopyEngine {
         long offset = destination.offset();
         int length = data.remaining();
 
-        if (offset < 0L || destination.length() < 0L || length > destination.length() || offset + length > buffer.size()) {
+        // "offset + length > size" would wrap around for offsets near Long.MAX_VALUE (the frontend's own check does)
+        if (offset < 0L || destination.length() < 0L || length > destination.length() || offset > buffer.size() - length) {
             throw new IllegalArgumentException("Writing " + length + " bytes at offset " + offset + " (slice length "
                     + destination.length() + ") does not fit the buffer of size " + buffer.size());
         }
@@ -220,7 +232,7 @@ public final class CopyEngine {
         long length = source.length();
 
         if (length < 0L || target.length() < length || source.offset() < 0L || target.offset() < 0L
-                || source.offset() + length > src.size() || target.offset() + length > dst.size()) {
+                || source.offset() > src.size() - length || target.offset() > dst.size() - length) {
             throw new IllegalArgumentException("Copying " + length + " bytes from offset " + source.offset() + " of a buffer of size "
                     + src.size() + " to offset " + target.offset() + " (slice length " + target.length() + ") of a buffer of size " + dst.size());
         }
@@ -514,7 +526,7 @@ public final class CopyEngine {
 
         long bytes = (long) width * height * format.bytesPerTexel();
 
-        if (offset < 0L || offset + bytes > buffer.size()) {
+        if (offset < 0L || offset > buffer.size() - bytes) {
             throw new IllegalArgumentException("Reading " + bytes + " bytes to offset " + offset + " does not fit the buffer of size " + buffer.size());
         }
 

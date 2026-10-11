@@ -32,17 +32,17 @@ public final class Alignment {
      * Rounds {@code value} up to a multiple of {@code alignment}.
      *
      * @param alignment any positive value (powers of two take a fast path)
+     * @throws ArithmeticException if the rounded value does not fit a {@code long} (a wrapped, negative size must never
+     *                             reach a resource description)
      */
     public static long alignUp(long value, long alignment) {
         if (alignment <= 0) {
             throw new IllegalArgumentException("alignment must be positive: " + alignment);
         }
 
-        if ((alignment & (alignment - 1)) == 0) {
-            return (value + alignment - 1) & -alignment;
-        }
+        long remainder = (alignment & (alignment - 1)) == 0 ? value & (alignment - 1) : Math.floorMod(value, alignment);
 
-        return ((value + alignment - 1) / alignment) * alignment;
+        return remainder == 0L ? value : Math.addExact(value, alignment - remainder);
     }
 
     /** Integer overload of {@link #alignUp(long, long)}; the caller guarantees that the result fits in an int. */

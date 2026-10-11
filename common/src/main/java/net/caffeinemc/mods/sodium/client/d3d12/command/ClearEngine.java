@@ -22,7 +22,8 @@ import java.lang.foreign.ValueLayout;
  *
  * <p>Every method: validate -> {@code tracker.require(.., RT | DW)} -> {@code tracker.flush(list)} -> record
  * ({@code ClearRenderTargetView} / {@code ClearDepthStencilView(CLEAR_FLAG_DEPTH)}); stencil is never touched; colour
- * values are the raw floats (not clamped); write masks and scissors do not apply to D3D12 clears.
+ * values are the raw floats (not clamped); the depth value is clamped to {@code [0, 1]} (NaN becomes 0), see
+ * {@link #clampDepth}; write masks and scissors do not apply to D3D12 clears.
  * <ul>
  *     <li>{@code clearColorTexture}, {@code clearDepthTexture} and the whole-texture combination clear <b>every mip</b>
  *     (of both textures) of layer 0; no rects. (The GL "depth mip 0 only" quirk is deliberately not copied.)</li>
@@ -70,7 +71,7 @@ public final class ClearEngine {
         D3D12Texture texture = depthAttachment(depthTexture);
 
         this.prepareDepth(texture);
-        this.clearAllMipsDepth(texture, (float) clearDepth);
+        this.clearAllMipsDepth(texture, clampDepth(clearDepth));
     }
 
     public void clearColorAndDepthTextures(GpuTexture colorTexture, Vector4fc clearColor, GpuTexture depthTexture, double clearDepth) {
@@ -90,7 +91,7 @@ public final class ClearEngine {
 
         tracker.flush(list);
         this.recordColorMips(list, colorTex, clearColor);
-        this.recordDepthMips(list, depthTex, (float) clearDepth);
+        this.recordDepthMips(list, depthTex, clampDepth(clearDepth));
     }
 
     public void clearColorAndDepthTextures(GpuTexture colorTexture, Vector4fc clearColor, GpuTexture depthTexture,
@@ -146,7 +147,7 @@ public final class ClearEngine {
 
         if (doDepth) {
             this.setRect(regionX, regionY, regionX + depthW, regionY + depthH);
-            list.clearDepthStencilView(depthTex.dsv(mipLevel), Enums.ClearFlags.DEPTH, (float) clearDepth, 0, 1, this.rect);
+            list.clearDepthStencilView(depthTex.dsv(mipLevel), Enums.ClearFlags.DEPTH, clampDepth(clearDepth), 0, 1, this.rect);
         }
     }
 
@@ -193,7 +194,7 @@ public final class ClearEngine {
         tracker.require(target.resource(), target.subresource(), ResourceStates.DW);
         tracker.flush(list);
 
-        list.clearDepthStencilView(target.cpuHandle(), Enums.ClearFlags.DEPTH, depth, 0, whole ? 0 : 1, whole ? null : this.rect);
+        list.clearDepthStencilView(target.cpuHandle(), Enums.ClearFlags.DEPTH, clampDepth(depth), 0, whole ? 0 : 1, whole ? null : this.rect);
     }
 
     // ------------------------------------------------------------------------------------------------------------
@@ -245,6 +246,21 @@ public final class ClearEngine {
         for (int mip = 0; mip < texture.getMipLevels(); mip++) {
             texture.dsv(mip);
         }
+    }
+
+    /**
+     * The depth value handed to {@code ClearDepthStencilView}: clamped to {@code [0, 1]} (NaN becomes 0). GL clamps
+     * {@code glClearDepth}, Vulkan only defines {@code [0, 1]} without {@code VK_EXT_depth_range_unrestricted}, and the
+     * Direct3D 12 runtime/debug layer define the clear value on that range only, so the frontend's "value cast to float"
+     * must not forward {@code 1.5} or {@code NaN} to the driver. The comparison is done in {@code double} so that a value
+     * just above 1 cannot round to a float above 1.
+     */
+    static float clampDepth(double depth) {
+        if (!(depth > 0.0)) {
+            return 0.0f;
+        }
+
+        return depth >= 1.0 ? 1.0f : (float) depth;
     }
 
     private void setColor(Vector4fc value) {

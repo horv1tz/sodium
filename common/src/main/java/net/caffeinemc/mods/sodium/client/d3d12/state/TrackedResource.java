@@ -18,7 +18,7 @@ public final class TrackedResource {
 
     /** State of every subresource while {@link #perSub} is null. */
     int uniformState;
-    /** Per-subresource states, allocated on the first transition that makes them differ. */
+    /** Per-subresource states, allocated on the first transition that makes them differ and kept from then on (no garbage per frame). */
     int @Nullable [] perSub;
     /** Index of the pending barrier of each subresource inside the tracker's batch, -1 = none; allocated lazily. */
     int @Nullable [] pendingIdx;
@@ -46,8 +46,17 @@ public final class TrackedResource {
         return this.subresources;
     }
 
-    /** @return the tracked state of one subresource, including transitions that are still pending */
+    /**
+     * @return the tracked state of one subresource, including transitions that are still pending
+     * @throws IllegalArgumentException if the subresource does not exist (the answer must not depend on whether the
+     *                                  per-subresource array happens to be allocated)
+     */
     public int state(int subresource) {
+        if (subresource < 0 || subresource >= this.subresources) {
+            throw new IllegalArgumentException("subresource " + subresource + " does not exist in a resource with "
+                    + this.subresources + " subresource(s)");
+        }
+
         return this.perSub == null ? this.uniformState : this.perSub[subresource];
     }
 }

@@ -70,8 +70,8 @@ public final class ResourceFactory {
     private static final long MAX_BUFFER_BYTES = 1L << 40;
     /** Textures above this estimated size are refused as out of memory before Direct3D is called. */
     private static final long MAX_TEXTURE_BYTES = 1L << 34;
-    /** An {@code E_INVALIDARG} for a texture of at least this size is reported as out of memory. */
-    private static final long LARGE_TEXTURE_BYTES = 1L << 30;
+    /** An {@code E_INVALIDARG} for a texture or buffer of at least this size is reported as out of memory. */
+    private static final long LARGE_RESOURCE_BYTES = 1L << 30;
 
     /** {@code D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING}: (0, 1, 2, 3) plus the always-set bit (header-checked). */
     private static final int DEFAULT_COMPONENT_MAPPING = 0x1688;
@@ -179,7 +179,7 @@ public final class ResourceFactory {
         try {
             resource = this.ctx.d3d().createCommittedBuffer(heapType, width, Enums.ResourceFlags.NONE, initialState);
         } catch (D3D12Exception e) {
-            throw this.creationFailure("creating a buffer of " + size + " bytes", e, false);
+            throw this.creationFailure("creating a buffer of " + size + " bytes", e, width >= LARGE_RESOURCE_BYTES);
         }
 
         Arena arena = null;
@@ -348,7 +348,7 @@ public final class ResourceFactory {
             resource = this.ctx.d3d().createCommittedTexture2D(info.resourceFormat(), width, height, depthOrLayers, mipLevels, 1,
                     flags, ResourceStates.COMMON, clear);
         } catch (D3D12Exception e) {
-            throw this.creationFailure("creating a " + width + "x" + height + " texture '" + name + "'", e, estimate >= LARGE_TEXTURE_BYTES);
+            throw this.creationFailure("creating a " + width + "x" + height + " texture '" + name + "'", e, estimate >= LARGE_RESOURCE_BYTES);
         }
 
         D3D12Texture texture;
@@ -389,7 +389,8 @@ public final class ResourceFactory {
             throw new IllegalArgumentException("Texture is closed: " + d3dTexture.getLabel());
         }
 
-        if (baseMipLevel < 0 || mipLevels < 1 || baseMipLevel + mipLevels > d3dTexture.getMipLevels()) {
+        // long arithmetic: baseMipLevel + mipLevels wraps around for huge arguments and must not look valid
+        if (baseMipLevel < 0 || mipLevels < 1 || (long) baseMipLevel + mipLevels > d3dTexture.getMipLevels()) {
             throw new IllegalArgumentException("Invalid mip range [" + baseMipLevel + ", +" + mipLevels + ") for a texture with "
                     + d3dTexture.getMipLevels() + " mip level(s)");
         }
@@ -551,7 +552,9 @@ public final class ResourceFactory {
                 throw new IllegalArgumentException("maxLod must not be NaN");
             }
 
-            lod = (float) Math.max(0.0, value);
+            // D3D12_SAMPLER_DESC.MaxLOD is a finite float: clamp to [0, FLT_MAX] (infinity or a huge double would otherwise
+            // become +Infinity, which the runtime / debug layer rejects)
+            lod = (float) Math.min(Math.max(0.0, value), (double) Float.MAX_VALUE);
         }
 
         CpuDescriptorAllocator allocator = this.ctx.descriptors().sampler();

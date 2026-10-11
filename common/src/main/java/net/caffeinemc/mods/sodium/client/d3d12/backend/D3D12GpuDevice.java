@@ -362,6 +362,14 @@ public final class D3D12GpuDevice implements GpuDeviceBackend {
                 attempt("drain the deferral queue", this.deferral::drainAll);
             }
 
+            if (this.debug != null) {
+                // the info queue holds a reference to the device: without this the device would never be released
+                attempt("release the debug message sink", () -> {
+                    this.debug.drainToLog();
+                    this.debug.close();
+                });
+            }
+
             if (this.rootSignatures != null && drained) {
                 attempt("release the root signatures", this.rootSignatures::close);
             }
