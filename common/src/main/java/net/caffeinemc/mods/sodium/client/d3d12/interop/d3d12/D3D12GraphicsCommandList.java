@@ -8,10 +8,12 @@ import net.caffeinemc.mods.sodium.client.d3d12.interop.abi.Enums;
 import net.caffeinemc.mods.sodium.client.d3d12.interop.abi.Iids;
 import net.caffeinemc.mods.sodium.client.d3d12.interop.abi.Vtbl;
 import net.caffeinemc.mods.sodium.client.d3d12.interop.abi.structs.D3D12Box;
+import net.caffeinemc.mods.sodium.client.d3d12.interop.abi.structs.D3D12DiscardRegion;
 import net.caffeinemc.mods.sodium.client.d3d12.interop.abi.structs.D3D12IndexBufferView;
 import net.caffeinemc.mods.sodium.client.d3d12.interop.abi.structs.D3D12PlacedSubresourceFootprint;
 import net.caffeinemc.mods.sodium.client.d3d12.interop.abi.structs.D3D12ResourceBarrier;
 import net.caffeinemc.mods.sodium.client.d3d12.interop.abi.structs.D3D12ResourceTransitionBarrier;
+import net.caffeinemc.mods.sodium.client.d3d12.interop.abi.structs.D3D12StreamOutputBufferView;
 import net.caffeinemc.mods.sodium.client.d3d12.interop.abi.structs.D3D12SubresourceFootprint;
 import net.caffeinemc.mods.sodium.client.d3d12.interop.abi.structs.D3D12TextureCopyLocation;
 import net.caffeinemc.mods.sodium.client.d3d12.interop.abi.structs.D3D12VertexBufferView;
@@ -192,6 +194,9 @@ public final class D3D12GraphicsCommandList extends D3D12Object.DeviceChild {
     // Draw / dispatch
     // ------------------------------------------------------------------------------------------------------------
 
+    /**
+     * Draws non-indexed, instanced primitives.
+     */
     public void drawInstanced(int vertexCountPerInstance, int instanceCount, int startVertexLocation, int startInstanceLocation) {
         try {
             DRAW_INSTANCED.invokeExact(this.fn(Vtbl.ID3D12GraphicsCommandList.DRAW_INSTANCED), this.ptr(),
@@ -201,6 +206,9 @@ public final class D3D12GraphicsCommandList extends D3D12Object.DeviceChild {
         }
     }
 
+    /**
+     * Draws indexed, instanced primitives. {@code baseVertexLocation} is added to every index and may be negative.
+     */
     public void drawIndexedInstanced(int indexCountPerInstance, int instanceCount, int startIndexLocation, int baseVertexLocation, int startInstanceLocation) {
         try {
             DRAW_INDEXED_INSTANCED.invokeExact(this.fn(Vtbl.ID3D12GraphicsCommandList.DRAW_INDEXED_INSTANCED), this.ptr(),
@@ -210,6 +218,9 @@ public final class D3D12GraphicsCommandList extends D3D12Object.DeviceChild {
         }
     }
 
+    /**
+     * Dispatches a compute thread grid.
+     */
     public void dispatch(int threadGroupCountX, int threadGroupCountY, int threadGroupCountZ) {
         try {
             DISPATCH.invokeExact(this.fn(Vtbl.ID3D12GraphicsCommandList.DISPATCH), this.ptr(),
@@ -243,6 +254,9 @@ public final class D3D12GraphicsCommandList extends D3D12Object.DeviceChild {
     // Copies
     // ------------------------------------------------------------------------------------------------------------
 
+    /**
+     * Copies {@code byteCount} bytes between two buffers. The buffers must be in the {@code COPY_DEST} / {@code COPY_SOURCE} (or compatible read) states.
+     */
     public void copyBufferRegion(D3D12Resource dstBuffer, long dstOffset, D3D12Resource srcBuffer, long srcOffset, long byteCount) {
         try {
             COPY_BUFFER_REGION.invokeExact(this.fn(Vtbl.ID3D12GraphicsCommandList.COPY_BUFFER_REGION), this.ptr(),
@@ -260,6 +274,10 @@ public final class D3D12GraphicsCommandList extends D3D12Object.DeviceChild {
      * @param srcBox a {@code D3D12_BOX} ({@link D3D12Box}) limiting the source region, or {@code null} for all of it
      */
     public void copyTextureRegion(MemorySegment dst, int dstX, int dstY, int dstZ, MemorySegment src, MemorySegment srcBox) {
+        requireSize(dst, D3D12TextureCopyLocation.SIZE, "dst");
+        requireSize(src, D3D12TextureCopyLocation.SIZE, "src");
+        requireSizeIfPresent(srcBox, D3D12Box.SIZE, "srcBox");
+
         try {
             COPY_TEXTURE_REGION.invokeExact(this.fn(Vtbl.ID3D12GraphicsCommandList.COPY_TEXTURE_REGION), this.ptr(),
                     dst, dstX, dstY, dstZ, src, D3D12Object.orNull(srcBox));
@@ -357,6 +375,9 @@ public final class D3D12GraphicsCommandList extends D3D12Object.DeviceChild {
         D3D12SubresourceFootprint.setRowPitch(footprint, rowPitch);
     }
 
+    /**
+     * Copies a whole resource to another of identical size, format and layout.
+     */
     public void copyResource(D3D12Resource dst, D3D12Resource src) {
         try {
             V_PP.invokeExact(this.fn(Vtbl.ID3D12GraphicsCommandList.COPY_RESOURCE), this.ptr(), dst.ptr(), src.ptr());
@@ -398,6 +419,8 @@ public final class D3D12GraphicsCommandList extends D3D12Object.DeviceChild {
      * @param viewports native array of {@code count} {@code D3D12_VIEWPORT} ({@link D3D12Viewport})
      */
     public void rsSetViewports(int count, MemorySegment viewports) {
+        requireArray(count, viewports, D3D12Viewport.SIZE, "viewports");
+
         try {
             V_IP.invokeExact(this.fn(Vtbl.ID3D12GraphicsCommandList.RS_SET_VIEWPORTS), this.ptr(), count, viewports);
         } catch (Throwable t) {
@@ -423,6 +446,8 @@ public final class D3D12GraphicsCommandList extends D3D12Object.DeviceChild {
      * @param rects native array of {@code count} {@code D3D12_RECT} (16 bytes each: left, top, right, bottom)
      */
     public void rsSetScissorRects(int count, MemorySegment rects) {
+        requireArray(count, rects, Rect.SIZE, "rects");
+
         try {
             V_IP.invokeExact(this.fn(Vtbl.ID3D12GraphicsCommandList.RS_SET_SCISSOR_RECTS), this.ptr(), count, rects);
         } catch (Throwable t) {
@@ -446,6 +471,8 @@ public final class D3D12GraphicsCommandList extends D3D12Object.DeviceChild {
      * @param blendFactor native {@code float[4]}, or {@code null} to use the blend factor of the pipeline
      */
     public void omSetBlendFactor(MemorySegment blendFactor) {
+        requireSizeIfPresent(blendFactor, 16, "blendFactor");
+
         try {
             V_P.invokeExact(this.fn(Vtbl.ID3D12GraphicsCommandList.OM_SET_BLEND_FACTOR), this.ptr(), D3D12Object.orNull(blendFactor));
         } catch (Throwable t) {
@@ -453,6 +480,9 @@ public final class D3D12GraphicsCommandList extends D3D12Object.DeviceChild {
         }
     }
 
+    /**
+     * Sets the blend factor used by {@code BLEND_FACTOR} blend operations. Does not allocate.
+     */
     public void omSetBlendFactor(float red, float green, float blue, float alpha) {
         MemorySegment color = this.scratch.asSlice(S_COLOR, 16);
         color.set(JAVA_FLOAT, 0, red);
@@ -462,6 +492,9 @@ public final class D3D12GraphicsCommandList extends D3D12Object.DeviceChild {
         this.omSetBlendFactor(color);
     }
 
+    /**
+     * Sets the stencil reference value of the output merger.
+     */
     public void omSetStencilRef(int stencilRef) {
         try {
             V_I.invokeExact(this.fn(Vtbl.ID3D12GraphicsCommandList.OM_SET_STENCIL_REF), this.ptr(), stencilRef);
@@ -470,6 +503,9 @@ public final class D3D12GraphicsCommandList extends D3D12Object.DeviceChild {
         }
     }
 
+    /**
+     * Binds a graphics or compute pipeline state.
+     */
     public void setPipelineState(D3D12PipelineState pipelineState) {
         try {
             V_P.invokeExact(this.fn(Vtbl.ID3D12GraphicsCommandList.SET_PIPELINE_STATE), this.ptr(), pipelineState.ptr());
@@ -488,6 +524,8 @@ public final class D3D12GraphicsCommandList extends D3D12Object.DeviceChild {
      * @param barriers native array of {@code count} {@code D3D12_RESOURCE_BARRIER} ({@link D3D12ResourceBarrier})
      */
     public void resourceBarrier(int count, MemorySegment barriers) {
+        requireArray(count, barriers, D3D12ResourceBarrier.SIZE, "barriers");
+
         try {
             V_IP.invokeExact(this.fn(Vtbl.ID3D12GraphicsCommandList.RESOURCE_BARRIER), this.ptr(), count, barriers);
         } catch (Throwable t) {
@@ -566,6 +604,9 @@ public final class D3D12GraphicsCommandList extends D3D12Object.DeviceChild {
         this.resourceBarrier(1, barrier);
     }
 
+    /**
+     * Executes a bundle (a command list created with {@code Enums.CommandListType.BUNDLE} and closed) from this direct list.
+     */
     public void executeBundle(D3D12GraphicsCommandList bundle) {
         try {
             V_P.invokeExact(this.fn(Vtbl.ID3D12GraphicsCommandList.EXECUTE_BUNDLE), this.ptr(), bundle.ptr());
@@ -583,6 +624,8 @@ public final class D3D12GraphicsCommandList extends D3D12Object.DeviceChild {
      *              sampler heap may be set
      */
     public void setDescriptorHeaps(int count, MemorySegment heaps) {
+        requireArray(count, heaps, 8, "heaps");
+
         try {
             V_IP.invokeExact(this.fn(Vtbl.ID3D12GraphicsCommandList.SET_DESCRIPTOR_HEAPS), this.ptr(), count, heaps);
         } catch (Throwable t) {
@@ -609,6 +652,9 @@ public final class D3D12GraphicsCommandList extends D3D12Object.DeviceChild {
         this.setDescriptorHeaps(2, pointers);
     }
 
+    /**
+     * Binds the root signature used by compute dispatches.
+     */
     public void setComputeRootSignature(D3D12RootSignature rootSignature) {
         try {
             V_P.invokeExact(this.fn(Vtbl.ID3D12GraphicsCommandList.SET_COMPUTE_ROOT_SIGNATURE), this.ptr(), rootSignature.ptr());
@@ -617,6 +663,9 @@ public final class D3D12GraphicsCommandList extends D3D12Object.DeviceChild {
         }
     }
 
+    /**
+     * Binds the root signature used by draws.
+     */
     public void setGraphicsRootSignature(D3D12RootSignature rootSignature) {
         try {
             V_P.invokeExact(this.fn(Vtbl.ID3D12GraphicsCommandList.SET_GRAPHICS_ROOT_SIGNATURE), this.ptr(), rootSignature.ptr());
@@ -647,6 +696,9 @@ public final class D3D12GraphicsCommandList extends D3D12Object.DeviceChild {
         }
     }
 
+    /**
+     * Sets one 32-bit root constant of the compute root signature.
+     */
     public void setComputeRoot32BitConstant(int rootParameterIndex, int data, int destOffsetIn32BitValues) {
         try {
             SET_ROOT_32BIT_CONSTANT.invokeExact(this.fn(Vtbl.ID3D12GraphicsCommandList.SET_COMPUTE_ROOT32_BIT_CONSTANT), this.ptr(),
@@ -656,6 +708,9 @@ public final class D3D12GraphicsCommandList extends D3D12Object.DeviceChild {
         }
     }
 
+    /**
+     * Sets one 32-bit root constant of the graphics root signature.
+     */
     public void setGraphicsRoot32BitConstant(int rootParameterIndex, int data, int destOffsetIn32BitValues) {
         try {
             SET_ROOT_32BIT_CONSTANT.invokeExact(this.fn(Vtbl.ID3D12GraphicsCommandList.SET_GRAPHICS_ROOT32_BIT_CONSTANT), this.ptr(),
@@ -671,6 +726,8 @@ public final class D3D12GraphicsCommandList extends D3D12Object.DeviceChild {
      * @param destOffsetIn32BitValues offset in 32-bit values into the root constants of the parameter
      */
     public void setComputeRoot32BitConstants(int rootParameterIndex, int count, MemorySegment data, int destOffsetIn32BitValues) {
+        requireArray(count, data, 4, "data");
+
         try {
             SET_ROOT_32BIT_CONSTANTS.invokeExact(this.fn(Vtbl.ID3D12GraphicsCommandList.SET_COMPUTE_ROOT32_BIT_CONSTANTS), this.ptr(),
                     rootParameterIndex, count, data, destOffsetIn32BitValues);
@@ -685,6 +742,8 @@ public final class D3D12GraphicsCommandList extends D3D12Object.DeviceChild {
      * @param destOffsetIn32BitValues offset in 32-bit values into the root constants of the parameter
      */
     public void setGraphicsRoot32BitConstants(int rootParameterIndex, int count, MemorySegment data, int destOffsetIn32BitValues) {
+        requireArray(count, data, 4, "data");
+
         try {
             SET_ROOT_32BIT_CONSTANTS.invokeExact(this.fn(Vtbl.ID3D12GraphicsCommandList.SET_GRAPHICS_ROOT32_BIT_CONSTANTS), this.ptr(),
                     rootParameterIndex, count, data, destOffsetIn32BitValues);
@@ -715,6 +774,9 @@ public final class D3D12GraphicsCommandList extends D3D12Object.DeviceChild {
         }
     }
 
+    /**
+     * @param gpuVirtualAddress the {@code D3D12_GPU_VIRTUAL_ADDRESS} of the buffer (see {@link D3D12Resource#getGPUVirtualAddress()})
+     */
     public void setComputeRootShaderResourceView(int rootParameterIndex, long gpuVirtualAddress) {
         try {
             SET_ROOT_LONG.invokeExact(this.fn(Vtbl.ID3D12GraphicsCommandList.SET_COMPUTE_ROOT_SHADER_RESOURCE_VIEW), this.ptr(), rootParameterIndex, gpuVirtualAddress);
@@ -723,6 +785,9 @@ public final class D3D12GraphicsCommandList extends D3D12Object.DeviceChild {
         }
     }
 
+    /**
+     * @param gpuVirtualAddress the {@code D3D12_GPU_VIRTUAL_ADDRESS} of the buffer (see {@link D3D12Resource#getGPUVirtualAddress()})
+     */
     public void setGraphicsRootShaderResourceView(int rootParameterIndex, long gpuVirtualAddress) {
         try {
             SET_ROOT_LONG.invokeExact(this.fn(Vtbl.ID3D12GraphicsCommandList.SET_GRAPHICS_ROOT_SHADER_RESOURCE_VIEW), this.ptr(), rootParameterIndex, gpuVirtualAddress);
@@ -731,6 +796,9 @@ public final class D3D12GraphicsCommandList extends D3D12Object.DeviceChild {
         }
     }
 
+    /**
+     * @param gpuVirtualAddress the {@code D3D12_GPU_VIRTUAL_ADDRESS} of the buffer (see {@link D3D12Resource#getGPUVirtualAddress()})
+     */
     public void setComputeRootUnorderedAccessView(int rootParameterIndex, long gpuVirtualAddress) {
         try {
             SET_ROOT_LONG.invokeExact(this.fn(Vtbl.ID3D12GraphicsCommandList.SET_COMPUTE_ROOT_UNORDERED_ACCESS_VIEW), this.ptr(), rootParameterIndex, gpuVirtualAddress);
@@ -739,6 +807,9 @@ public final class D3D12GraphicsCommandList extends D3D12Object.DeviceChild {
         }
     }
 
+    /**
+     * @param gpuVirtualAddress the {@code D3D12_GPU_VIRTUAL_ADDRESS} of the buffer (see {@link D3D12Resource#getGPUVirtualAddress()})
+     */
     public void setGraphicsRootUnorderedAccessView(int rootParameterIndex, long gpuVirtualAddress) {
         try {
             SET_ROOT_LONG.invokeExact(this.fn(Vtbl.ID3D12GraphicsCommandList.SET_GRAPHICS_ROOT_UNORDERED_ACCESS_VIEW), this.ptr(), rootParameterIndex, gpuVirtualAddress);
@@ -755,6 +826,8 @@ public final class D3D12GraphicsCommandList extends D3D12Object.DeviceChild {
      * @param view a {@code D3D12_INDEX_BUFFER_VIEW} ({@link D3D12IndexBufferView}), or {@code null} to unbind
      */
     public void iaSetIndexBuffer(MemorySegment view) {
+        requireSizeIfPresent(view, D3D12IndexBufferView.SIZE, "view");
+
         try {
             V_P.invokeExact(this.fn(Vtbl.ID3D12GraphicsCommandList.IA_SET_INDEX_BUFFER), this.ptr(), D3D12Object.orNull(view));
         } catch (Throwable t) {
@@ -782,6 +855,8 @@ public final class D3D12GraphicsCommandList extends D3D12Object.DeviceChild {
      *              {@code null} to unbind the slots
      */
     public void iaSetVertexBuffers(int startSlot, int count, MemorySegment views) {
+        requireArrayIfPresent(count, views, D3D12VertexBufferView.SIZE, "views");
+
         try {
             V_IIP.invokeExact(this.fn(Vtbl.ID3D12GraphicsCommandList.IA_SET_VERTEX_BUFFERS), this.ptr(), startSlot, count, D3D12Object.orNull(views));
         } catch (Throwable t) {
@@ -808,6 +883,8 @@ public final class D3D12GraphicsCommandList extends D3D12Object.DeviceChild {
      * @param views native array of {@code count} {@code D3D12_STREAM_OUTPUT_BUFFER_VIEW}, or {@code null} to unbind
      */
     public void soSetTargets(int startSlot, int count, MemorySegment views) {
+        requireArrayIfPresent(count, views, D3D12StreamOutputBufferView.SIZE, "views");
+
         try {
             V_IIP.invokeExact(this.fn(Vtbl.ID3D12GraphicsCommandList.SO_SET_TARGETS), this.ptr(), startSlot, count, D3D12Object.orNull(views));
         } catch (Throwable t) {
@@ -828,6 +905,9 @@ public final class D3D12GraphicsCommandList extends D3D12Object.DeviceChild {
      */
     public void omSetRenderTargets(int count, MemorySegment renderTargetDescriptors, boolean singleHandleToDescriptorRange,
                                    MemorySegment depthStencilDescriptor) {
+        requireArray(singleHandleToDescriptorRange && count > 0 ? 1 : count, renderTargetDescriptors, 8, "renderTargetDescriptors");
+        requireSizeIfPresent(depthStencilDescriptor, 8, "depthStencilDescriptor");
+
         try {
             OM_SET_RENDER_TARGETS.invokeExact(this.fn(Vtbl.ID3D12GraphicsCommandList.OM_SET_RENDER_TARGETS), this.ptr(), count,
                     D3D12Object.orNull(renderTargetDescriptors), singleHandleToDescriptorRange ? 1 : 0,
@@ -872,6 +952,8 @@ public final class D3D12GraphicsCommandList extends D3D12Object.DeviceChild {
      * @param rects     native array of {@code D3D12_RECT}, or {@code null}
      */
     public void clearDepthStencilView(long dsvHandle, int clearFlags, float depth, int stencil, int rectCount, MemorySegment rects) {
+        requireArray(rectCount, rects, Rect.SIZE, "rects");
+
         try {
             CLEAR_DEPTH_STENCIL_VIEW.invokeExact(this.fn(Vtbl.ID3D12GraphicsCommandList.CLEAR_DEPTH_STENCIL_VIEW), this.ptr(),
                     dsvHandle, clearFlags, depth, (byte) stencil, rectCount, D3D12Object.orNull(rects));
@@ -896,6 +978,9 @@ public final class D3D12GraphicsCommandList extends D3D12Object.DeviceChild {
      * @param rects     native array of {@code D3D12_RECT}, or {@code null}
      */
     public void clearRenderTargetView(long rtvHandle, MemorySegment color, int rectCount, MemorySegment rects) {
+        requireSize(color, 16, "color");
+        requireArray(rectCount, rects, Rect.SIZE, "rects");
+
         try {
             CLEAR_RENDER_TARGET_VIEW.invokeExact(this.fn(Vtbl.ID3D12GraphicsCommandList.CLEAR_RENDER_TARGET_VIEW), this.ptr(),
                     rtvHandle, color, rectCount, D3D12Object.orNull(rects));
@@ -923,6 +1008,9 @@ public final class D3D12GraphicsCommandList extends D3D12Object.DeviceChild {
      */
     public void clearUnorderedAccessViewUint(long gpuHandle, long cpuHandle, D3D12Resource resource, MemorySegment values,
                                              int rectCount, MemorySegment rects) {
+        requireSize(values, 16, "values");
+        requireArray(rectCount, rects, Rect.SIZE, "rects");
+
         try {
             CLEAR_UNORDERED_ACCESS_VIEW.invokeExact(this.fn(Vtbl.ID3D12GraphicsCommandList.CLEAR_UNORDERED_ACCESS_VIEW_UINT), this.ptr(),
                     gpuHandle, cpuHandle, resource.ptr(), values, rectCount, D3D12Object.orNull(rects));
@@ -938,6 +1026,9 @@ public final class D3D12GraphicsCommandList extends D3D12Object.DeviceChild {
      */
     public void clearUnorderedAccessViewFloat(long gpuHandle, long cpuHandle, D3D12Resource resource, MemorySegment values,
                                               int rectCount, MemorySegment rects) {
+        requireSize(values, 16, "values");
+        requireArray(rectCount, rects, Rect.SIZE, "rects");
+
         try {
             CLEAR_UNORDERED_ACCESS_VIEW.invokeExact(this.fn(Vtbl.ID3D12GraphicsCommandList.CLEAR_UNORDERED_ACCESS_VIEW_FLOAT), this.ptr(),
                     gpuHandle, cpuHandle, resource.ptr(), values, rectCount, D3D12Object.orNull(rects));
@@ -952,6 +1043,8 @@ public final class D3D12GraphicsCommandList extends D3D12Object.DeviceChild {
      * @param region a {@code D3D12_DISCARD_REGION}, or {@code null} to discard everything
      */
     public void discardResource(D3D12Resource resource, MemorySegment region) {
+        requireSizeIfPresent(region, D3D12DiscardRegion.SIZE, "region");
+
         try {
             V_PP.invokeExact(this.fn(Vtbl.ID3D12GraphicsCommandList.DISCARD_RESOURCE), this.ptr(), resource.ptr(), D3D12Object.orNull(region));
         } catch (Throwable t) {
@@ -1030,6 +1123,8 @@ public final class D3D12GraphicsCommandList extends D3D12Object.DeviceChild {
      * @param size     size of {@code data} in bytes, including the terminator
      */
     public void setMarker(int metadata, MemorySegment data, int size) {
+        requireSize(data, Integer.toUnsignedLong(size), "data");
+
         try {
             MARKER.invokeExact(this.fn(Vtbl.ID3D12GraphicsCommandList.SET_MARKER), this.ptr(), metadata, data, size);
         } catch (Throwable t) {
@@ -1044,6 +1139,8 @@ public final class D3D12GraphicsCommandList extends D3D12Object.DeviceChild {
      * @param size     size of {@code data} in bytes, including the terminator
      */
     public void beginEvent(int metadata, MemorySegment data, int size) {
+        requireSize(data, Integer.toUnsignedLong(size), "data");
+
         try {
             MARKER.invokeExact(this.fn(Vtbl.ID3D12GraphicsCommandList.BEGIN_EVENT), this.ptr(), metadata, data, size);
         } catch (Throwable t) {
@@ -1051,6 +1148,9 @@ public final class D3D12GraphicsCommandList extends D3D12Object.DeviceChild {
         }
     }
 
+    /**
+     * Closes the event region opened by the last {@link #beginEvent(int, MemorySegment, int)} on this list.
+     */
     public void endEvent() {
         try {
             V_NONE.invokeExact(this.fn(Vtbl.ID3D12GraphicsCommandList.END_EVENT), this.ptr());

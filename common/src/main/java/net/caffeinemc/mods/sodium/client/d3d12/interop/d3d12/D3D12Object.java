@@ -66,6 +66,64 @@ public abstract class D3D12Object extends ComObject {
     }
 
     /**
+     * Rejects argument memory that is smaller than what the native call reads or writes. A segment that is too small
+     * would otherwise turn into an out-of-bounds native access (heap corruption or an access violation that takes the
+     * whole process down). Segments of raw pointers must be given their size first ({@code reinterpret}).
+     *
+     * @param required the number of bytes the call needs from {@code segment}
+     * @param what     the parameter name for the message
+     * @throws IllegalArgumentException if the segment is {@code null} or smaller than {@code required}
+     */
+    static void requireSize(MemorySegment segment, long required, String what) {
+        if (segment == null || segment.byteSize() < required) {
+            throw sizeError(segment, required, what);
+        }
+    }
+
+    /**
+     * Like {@link #requireSize} for an optional parameter: {@code null} and {@link MemorySegment#NULL} pass.
+     */
+    static void requireSizeIfPresent(MemorySegment segment, long required, String what) {
+        if (segment != null && segment.address() != 0L && segment.byteSize() < required) {
+            throw sizeError(segment, required, what);
+        }
+    }
+
+    /**
+     * Checks a (count, array of {@code stride}-byte elements) pair. A count of 0 accepts any segment ({@link MemorySegment#NULL} for
+     * "no array").
+     *
+     * @throws IllegalArgumentException if {@code count} is negative or the array is too small
+     */
+    static void requireArray(int count, MemorySegment array, long stride, String what) {
+        if (count < 0) {
+            throw new IllegalArgumentException(what + ": negative element count " + count);
+        }
+
+        if (count > 0) {
+            requireSize(array, stride * count, what);
+        }
+    }
+
+    /**
+     * Like {@link #requireArray} for an optional array.
+     */
+    static void requireArrayIfPresent(int count, MemorySegment array, long stride, String what) {
+        if (count < 0) {
+            throw new IllegalArgumentException(what + ": negative element count " + count);
+        }
+
+        if (count > 0) {
+            requireSizeIfPresent(array, stride * count, what);
+        }
+    }
+
+    private static IllegalArgumentException sizeError(MemorySegment segment, long required, String what) {
+        return new IllegalArgumentException(what + " must be native memory of at least " + required + " bytes, but is "
+                + (segment == null ? "null" : segment.byteSize() + " bytes"));
+    }
+
+    /**
      * @return {@code segment}, or {@link MemorySegment#NULL} if it is {@code null}
      */
     static MemorySegment orNull(MemorySegment segment) {
@@ -95,6 +153,18 @@ public abstract class D3D12Object extends ComObject {
             } catch (Throwable t) {
                 throw Com.rethrow(t);
             }
+        }
+    }
+
+    /**
+     * Base class of the interfaces derived from {@code ID3D12Pageable}: the objects that occupy GPU-accessible memory and
+     * can therefore be passed to {@link D3D12Device#makeResident(Pageable)} / {@link D3D12Device#evict(Pageable)} (heaps,
+     * resources, descriptor heaps, query heaps, pipeline states, command signatures, command allocators, command
+     * queues and fences). Root signatures and command lists are device children but not pageable.
+     */
+    public abstract static class Pageable extends DeviceChild {
+        protected Pageable(MemorySegment pointer) {
+            super(pointer);
         }
     }
 }

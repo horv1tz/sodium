@@ -7,7 +7,11 @@ import net.caffeinemc.mods.sodium.client.d3d12.interop.abi.Iids;
 import net.caffeinemc.mods.sodium.client.d3d12.interop.abi.Vtbl;
 import net.caffeinemc.mods.sodium.client.d3d12.interop.abi.structs.D3D12ClearValue;
 import net.caffeinemc.mods.sodium.client.d3d12.interop.abi.structs.D3D12CommandQueueDesc;
+import net.caffeinemc.mods.sodium.client.d3d12.interop.abi.structs.D3D12CommandSignatureDesc;
+import net.caffeinemc.mods.sodium.client.d3d12.interop.abi.structs.D3D12ComputePipelineStateDesc;
+import net.caffeinemc.mods.sodium.client.d3d12.interop.abi.structs.D3D12ConstantBufferViewDesc;
 import net.caffeinemc.mods.sodium.client.d3d12.interop.abi.structs.D3D12DepthStencilValue;
+import net.caffeinemc.mods.sodium.client.d3d12.interop.abi.structs.D3D12DepthStencilViewDesc;
 import net.caffeinemc.mods.sodium.client.d3d12.interop.abi.structs.D3D12DescriptorHeapDesc;
 import net.caffeinemc.mods.sodium.client.d3d12.interop.abi.structs.D3D12FeatureDataArchitecture;
 import net.caffeinemc.mods.sodium.client.d3d12.interop.abi.structs.D3D12FeatureDataD3D12Options;
@@ -16,12 +20,18 @@ import net.caffeinemc.mods.sodium.client.d3d12.interop.abi.structs.D3D12FeatureD
 import net.caffeinemc.mods.sodium.client.d3d12.interop.abi.structs.D3D12FeatureDataMultisampleQualityLevels;
 import net.caffeinemc.mods.sodium.client.d3d12.interop.abi.structs.D3D12FeatureDataRootSignature;
 import net.caffeinemc.mods.sodium.client.d3d12.interop.abi.structs.D3D12FeatureDataShaderModel;
+import net.caffeinemc.mods.sodium.client.d3d12.interop.abi.structs.D3D12GraphicsPipelineStateDesc;
+import net.caffeinemc.mods.sodium.client.d3d12.interop.abi.structs.D3D12HeapDesc;
 import net.caffeinemc.mods.sodium.client.d3d12.interop.abi.structs.D3D12HeapProperties;
 import net.caffeinemc.mods.sodium.client.d3d12.interop.abi.structs.D3D12PlacedSubresourceFootprint;
 import net.caffeinemc.mods.sodium.client.d3d12.interop.abi.structs.D3D12QueryHeapDesc;
+import net.caffeinemc.mods.sodium.client.d3d12.interop.abi.structs.D3D12RenderTargetViewDesc;
 import net.caffeinemc.mods.sodium.client.d3d12.interop.abi.structs.D3D12ResourceAllocationInfo;
 import net.caffeinemc.mods.sodium.client.d3d12.interop.abi.structs.D3D12ResourceDesc;
+import net.caffeinemc.mods.sodium.client.d3d12.interop.abi.structs.D3D12SamplerDesc;
+import net.caffeinemc.mods.sodium.client.d3d12.interop.abi.structs.D3D12ShaderResourceViewDesc;
 import net.caffeinemc.mods.sodium.client.d3d12.interop.abi.structs.D3D12SubresourceFootprint;
+import net.caffeinemc.mods.sodium.client.d3d12.interop.abi.structs.D3D12UnorderedAccessViewDesc;
 import net.caffeinemc.mods.sodium.client.d3d12.interop.abi.structs.DxgiSampleDesc;
 import net.caffeinemc.mods.sodium.client.d3d12.interop.abi.structs.Luid;
 import net.caffeinemc.mods.sodium.client.d3d12.interop.compiler.D3DBlob;
@@ -133,7 +143,9 @@ public final class D3D12Device extends D3D12Object {
     // Object creation
     // ------------------------------------------------------------------------------------------------------------
 
-    private MemorySegment createFromDesc(int slot, MemorySegment desc, MemorySegment iid, String what) {
+    private MemorySegment createFromDesc(int slot, MemorySegment desc, long descSize, MemorySegment iid, String what) {
+        requireSize(desc, descSize, "desc");
+
         try (Arena arena = Arena.ofConfined()) {
             MemorySegment out = arena.allocate(ADDRESS);
             int hr = (int) CREATE_FROM_DESC.invokeExact(this.fn(slot), this.ptr(), desc, iid, out);
@@ -149,7 +161,7 @@ public final class D3D12Device extends D3D12Object {
      * @param desc a {@code D3D12_COMMAND_QUEUE_DESC} ({@link D3D12CommandQueueDesc})
      */
     public D3D12CommandQueue createCommandQueue(MemorySegment desc) {
-        return new D3D12CommandQueue(this.createFromDesc(Vtbl.ID3D12Device.CREATE_COMMAND_QUEUE, desc,
+        return new D3D12CommandQueue(this.createFromDesc(Vtbl.ID3D12Device.CREATE_COMMAND_QUEUE, desc, D3D12CommandQueueDesc.SIZE,
                 Iids.ID3D12CommandQueue, "ID3D12Device::CreateCommandQueue"));
     }
 
@@ -218,7 +230,7 @@ public final class D3D12Device extends D3D12Object {
      */
     public D3D12PipelineState createGraphicsPipelineState(MemorySegment desc) {
         return new D3D12PipelineState(this.createFromDesc(Vtbl.ID3D12Device.CREATE_GRAPHICS_PIPELINE_STATE, desc,
-                Iids.ID3D12PipelineState, "ID3D12Device::CreateGraphicsPipelineState"));
+                D3D12GraphicsPipelineStateDesc.SIZE, Iids.ID3D12PipelineState, "ID3D12Device::CreateGraphicsPipelineState"));
     }
 
     /**
@@ -226,7 +238,7 @@ public final class D3D12Device extends D3D12Object {
      */
     public D3D12PipelineState createComputePipelineState(MemorySegment desc) {
         return new D3D12PipelineState(this.createFromDesc(Vtbl.ID3D12Device.CREATE_COMPUTE_PIPELINE_STATE, desc,
-                Iids.ID3D12PipelineState, "ID3D12Device::CreateComputePipelineState"));
+                D3D12ComputePipelineStateDesc.SIZE, Iids.ID3D12PipelineState, "ID3D12Device::CreateComputePipelineState"));
     }
 
     /**
@@ -234,7 +246,7 @@ public final class D3D12Device extends D3D12Object {
      */
     public D3D12DescriptorHeap createDescriptorHeap(MemorySegment desc) {
         return new D3D12DescriptorHeap(this.createFromDesc(Vtbl.ID3D12Device.CREATE_DESCRIPTOR_HEAP, desc,
-                Iids.ID3D12DescriptorHeap, "ID3D12Device::CreateDescriptorHeap"));
+                D3D12DescriptorHeapDesc.SIZE, Iids.ID3D12DescriptorHeap, "ID3D12Device::CreateDescriptorHeap"));
     }
 
     /**
@@ -273,6 +285,8 @@ public final class D3D12Device extends D3D12Object {
      * @param bytecodeLength size of the serialized root signature in bytes
      */
     public D3D12RootSignature createRootSignature(int nodeMask, MemorySegment bytecode, long bytecodeLength) {
+        requireSize(bytecode, bytecodeLength, "bytecode");
+
         try (Arena arena = Arena.ofConfined()) {
             MemorySegment out = arena.allocate(ADDRESS);
             int hr = (int) CREATE_ROOT_SIGNATURE.invokeExact(this.fn(Vtbl.ID3D12Device.CREATE_ROOT_SIGNATURE), this.ptr(),
@@ -304,6 +318,10 @@ public final class D3D12Device extends D3D12Object {
      */
     public D3D12Resource createCommittedResource(MemorySegment heapProperties, int heapFlags, MemorySegment desc,
                                                  int initialState, MemorySegment clearValue) {
+        requireSize(heapProperties, D3D12HeapProperties.SIZE, "heapProperties");
+        requireSize(desc, D3D12ResourceDesc.SIZE, "desc");
+        requireSizeIfPresent(clearValue, D3D12ClearValue.SIZE, "clearValue");
+
         try (Arena arena = Arena.ofConfined()) {
             MemorySegment out = arena.allocate(ADDRESS);
             int hr = (int) CREATE_COMMITTED_RESOURCE.invokeExact(this.fn(Vtbl.ID3D12Device.CREATE_COMMITTED_RESOURCE), this.ptr(),
@@ -324,8 +342,13 @@ public final class D3D12Device extends D3D12Object {
      * @param resourceFlags {@code D3D12_RESOURCE_FLAGS} ({@code Enums.ResourceFlags}), for example ALLOW_UNORDERED_ACCESS
      * @param initialState  {@code D3D12_RESOURCE_STATES}; use {@code GENERIC_READ} for upload and {@code COPY_DEST} for
      *                      readback buffers
+     * @throws IllegalArgumentException if {@code sizeInBytes} is not positive
      */
     public D3D12Resource createCommittedBuffer(int heapType, long sizeInBytes, int resourceFlags, int initialState) {
+        if (sizeInBytes <= 0L) {
+            throw new IllegalArgumentException("Buffer size must be positive: " + sizeInBytes);
+        }
+
         try (Arena arena = Arena.ofConfined()) {
             MemorySegment properties = heapProperties(arena, heapType);
             MemorySegment desc = D3D12ResourceDesc.allocate(arena);
@@ -354,9 +377,17 @@ public final class D3D12Device extends D3D12Object {
      * @param initialState  {@code D3D12_RESOURCE_STATES}
      * @param clearValue    a {@code D3D12_CLEAR_VALUE} (required for render target / depth-stencil textures to get
      *                      fast clears), or {@code null}
+     * @throws IllegalArgumentException if the size, array size or sample count is not positive, or the array size or mip
+     *                                  level count does not fit the 16 bits of the description ({@code mipLevels == 0}
+     *                                  asks for the full mip chain)
      */
     public D3D12Resource createCommittedTexture2D(int format, long width, int height, int arraySize, int mipLevels,
                                                   int sampleCount, int resourceFlags, int initialState, MemorySegment clearValue) {
+        if (width <= 0L || height <= 0 || arraySize <= 0 || arraySize > 0xFFFF || mipLevels < 0 || mipLevels > 0xFFFF || sampleCount <= 0) {
+            throw new IllegalArgumentException("Invalid texture description: " + width + "x" + height + ", array size " + arraySize
+                    + ", mip levels " + mipLevels + ", samples " + sampleCount);
+        }
+
         try (Arena arena = Arena.ofConfined()) {
             MemorySegment properties = heapProperties(arena, Enums.HeapType.DEFAULT);
             MemorySegment desc = D3D12ResourceDesc.allocate(arena);
@@ -430,6 +461,9 @@ public final class D3D12Device extends D3D12Object {
      * @param clearValue   a {@code D3D12_CLEAR_VALUE}, or {@code null}
      */
     public D3D12Resource createPlacedResource(D3D12Heap heap, long heapOffset, MemorySegment desc, int initialState, MemorySegment clearValue) {
+        requireSize(desc, D3D12ResourceDesc.SIZE, "desc");
+        requireSizeIfPresent(clearValue, D3D12ClearValue.SIZE, "clearValue");
+
         try (Arena arena = Arena.ofConfined()) {
             MemorySegment out = arena.allocate(ADDRESS);
             int hr = (int) CREATE_PLACED_RESOURCE.invokeExact(this.fn(Vtbl.ID3D12Device.CREATE_PLACED_RESOURCE), this.ptr(),
@@ -446,7 +480,8 @@ public final class D3D12Device extends D3D12Object {
      * @param desc a {@code D3D12_HEAP_DESC} ({@code abi.structs.D3D12HeapDesc})
      */
     public D3D12Heap createHeap(MemorySegment desc) {
-        return new D3D12Heap(this.createFromDesc(Vtbl.ID3D12Device.CREATE_HEAP, desc, Iids.ID3D12Heap, "ID3D12Device::CreateHeap"));
+        return new D3D12Heap(this.createFromDesc(Vtbl.ID3D12Device.CREATE_HEAP, desc, D3D12HeapDesc.SIZE, Iids.ID3D12Heap,
+                "ID3D12Device::CreateHeap"));
     }
 
     /**
@@ -476,7 +511,7 @@ public final class D3D12Device extends D3D12Object {
      * @param desc a {@code D3D12_QUERY_HEAP_DESC} ({@link D3D12QueryHeapDesc})
      */
     public D3D12QueryHeap createQueryHeap(MemorySegment desc) {
-        return new D3D12QueryHeap(this.createFromDesc(Vtbl.ID3D12Device.CREATE_QUERY_HEAP, desc,
+        return new D3D12QueryHeap(this.createFromDesc(Vtbl.ID3D12Device.CREATE_QUERY_HEAP, desc, D3D12QueryHeapDesc.SIZE,
                 Iids.ID3D12QueryHeap, "ID3D12Device::CreateQueryHeap"));
     }
 
@@ -499,6 +534,8 @@ public final class D3D12Device extends D3D12Object {
      * @param rootSignature the root signature, required if the signature changes root arguments, otherwise {@code null}
      */
     public D3D12CommandSignature createCommandSignature(MemorySegment desc, D3D12RootSignature rootSignature) {
+        requireSize(desc, D3D12CommandSignatureDesc.SIZE, "desc");
+
         try (Arena arena = Arena.ofConfined()) {
             MemorySegment out = arena.allocate(ADDRESS);
             int hr = (int) CREATE_COMMAND_SIGNATURE.invokeExact(this.fn(Vtbl.ID3D12Device.CREATE_COMMAND_SIGNATURE), this.ptr(),
@@ -520,6 +557,8 @@ public final class D3D12Device extends D3D12Object {
      * @param destDescriptor the CPU descriptor handle to write
      */
     public void createConstantBufferView(MemorySegment desc, long destDescriptor) {
+        requireSize(desc, D3D12ConstantBufferViewDesc.SIZE, "desc");
+
         try {
             CREATE_CBV.invokeExact(this.fn(Vtbl.ID3D12Device.CREATE_CONSTANT_BUFFER_VIEW), this.ptr(), desc, destDescriptor);
         } catch (Throwable t) {
@@ -533,6 +572,8 @@ public final class D3D12Device extends D3D12Object {
      * @param destDescriptor the CPU descriptor handle to write
      */
     public void createShaderResourceView(D3D12Resource resource, MemorySegment desc, long destDescriptor) {
+        requireSizeIfPresent(desc, D3D12ShaderResourceViewDesc.SIZE, "desc");
+
         try {
             CREATE_VIEW.invokeExact(this.fn(Vtbl.ID3D12Device.CREATE_SHADER_RESOURCE_VIEW), this.ptr(), ptrOrNull(resource), orNull(desc), destDescriptor);
         } catch (Throwable t) {
@@ -547,6 +588,8 @@ public final class D3D12Device extends D3D12Object {
      * @param destDescriptor  the CPU descriptor handle to write
      */
     public void createUnorderedAccessView(D3D12Resource resource, D3D12Resource counterResource, MemorySegment desc, long destDescriptor) {
+        requireSizeIfPresent(desc, D3D12UnorderedAccessViewDesc.SIZE, "desc");
+
         try {
             CREATE_UAV.invokeExact(this.fn(Vtbl.ID3D12Device.CREATE_UNORDERED_ACCESS_VIEW), this.ptr(), ptrOrNull(resource),
                     ptrOrNull(counterResource), orNull(desc), destDescriptor);
@@ -561,6 +604,8 @@ public final class D3D12Device extends D3D12Object {
      * @param destDescriptor the CPU descriptor handle to write
      */
     public void createRenderTargetView(D3D12Resource resource, MemorySegment desc, long destDescriptor) {
+        requireSizeIfPresent(desc, D3D12RenderTargetViewDesc.SIZE, "desc");
+
         try {
             CREATE_VIEW.invokeExact(this.fn(Vtbl.ID3D12Device.CREATE_RENDER_TARGET_VIEW), this.ptr(), ptrOrNull(resource), orNull(desc), destDescriptor);
         } catch (Throwable t) {
@@ -574,6 +619,8 @@ public final class D3D12Device extends D3D12Object {
      * @param destDescriptor the CPU descriptor handle to write
      */
     public void createDepthStencilView(D3D12Resource resource, MemorySegment desc, long destDescriptor) {
+        requireSizeIfPresent(desc, D3D12DepthStencilViewDesc.SIZE, "desc");
+
         try {
             CREATE_VIEW.invokeExact(this.fn(Vtbl.ID3D12Device.CREATE_DEPTH_STENCIL_VIEW), this.ptr(), ptrOrNull(resource), orNull(desc), destDescriptor);
         } catch (Throwable t) {
@@ -586,6 +633,8 @@ public final class D3D12Device extends D3D12Object {
      * @param destDescriptor the CPU descriptor handle (in a sampler heap) to write
      */
     public void createSampler(MemorySegment desc, long destDescriptor) {
+        requireSize(desc, D3D12SamplerDesc.SIZE, "desc");
+
         try {
             CREATE_CBV.invokeExact(this.fn(Vtbl.ID3D12Device.CREATE_SAMPLER), this.ptr(), desc, destDescriptor);
         } catch (Throwable t) {
@@ -607,6 +656,11 @@ public final class D3D12Device extends D3D12Object {
      */
     public void copyDescriptors(int dstRangeCount, MemorySegment dstRangeStarts, MemorySegment dstRangeSizes,
                                 int srcRangeCount, MemorySegment srcRangeStarts, MemorySegment srcRangeSizes, int heapType) {
+        requireArray(dstRangeCount, dstRangeStarts, 8, "dstRangeStarts");
+        requireArrayIfPresent(dstRangeCount, dstRangeSizes, 4, "dstRangeSizes");
+        requireArray(srcRangeCount, srcRangeStarts, 8, "srcRangeStarts");
+        requireArrayIfPresent(srcRangeCount, srcRangeSizes, 4, "srcRangeSizes");
+
         try {
             COPY_DESCRIPTORS.invokeExact(this.fn(Vtbl.ID3D12Device.COPY_DESCRIPTORS), this.ptr(), dstRangeCount, dstRangeStarts,
                     orNull(dstRangeSizes), srcRangeCount, srcRangeStarts, orNull(srcRangeSizes), heapType);
@@ -643,6 +697,9 @@ public final class D3D12Device extends D3D12Object {
      * @param out         native {@code D3D12_RESOURCE_ALLOCATION_INFO} ({@link D3D12ResourceAllocationInfo}) receiving the result
      */
     public void getResourceAllocationInfo(int visibleMask, int count, MemorySegment descs, MemorySegment out) {
+        requireArray(count, descs, D3D12ResourceDesc.SIZE, "descs");
+        requireSize(out, D3D12ResourceAllocationInfo.SIZE, "out");
+
         try {
             long ignored = (long) GET_RESOURCE_ALLOCATION_INFO.invokeExact(this.fn(Vtbl.ID3D12Device.GET_RESOURCE_ALLOCATION_INFO),
                     this.ptr(), out, visibleMask, count, descs);
@@ -677,6 +734,8 @@ public final class D3D12Device extends D3D12Object {
      * @param out      native {@code D3D12_HEAP_PROPERTIES} ({@link D3D12HeapProperties}) receiving the result
      */
     public void getCustomHeapProperties(int nodeMask, int heapType, MemorySegment out) {
+        requireSize(out, D3D12HeapProperties.SIZE, "out");
+
         try {
             long ignored = (long) GET_CUSTOM_HEAP_PROPERTIES.invokeExact(this.fn(Vtbl.ID3D12Device.GET_CUSTOM_HEAP_PROPERTIES),
                     this.ptr(), out, nodeMask, heapType);
@@ -690,11 +749,13 @@ public final class D3D12Device extends D3D12Object {
      *
      * @param objectCount number of objects
      * @param objects     native array of {@code objectCount} {@code ID3D12Pageable*} (8 bytes each: heaps, committed
-     *                    resources, descriptor heaps, query heaps, pipeline states, command lists)
+     *                    resources, descriptor heaps, query heaps, pipeline states, ...; see {@link Pageable})
      * @return the raw HRESULT; {@code E_OUTOFMEMORY} means there is not enough video memory and the caller should
      * evict something
      */
     public int makeResident(int objectCount, MemorySegment objects) {
+        requireArray(objectCount, objects, 8, "objects");
+
         try {
             return (int) RESIDENCY.invokeExact(this.fn(Vtbl.ID3D12Device.MAKE_RESIDENT), this.ptr(), objectCount, objects);
         } catch (Throwable t) {
@@ -707,7 +768,7 @@ public final class D3D12Device extends D3D12Object {
      *
      * @return the raw HRESULT, see {@link #makeResident(int, MemorySegment)}
      */
-    public int makeResident(DeviceChild pageable) {
+    public int makeResident(Pageable pageable) {
         try (Arena arena = Arena.ofConfined()) {
             MemorySegment array = arena.allocate(ADDRESS);
             array.set(ADDRESS, 0, pageable.ptr());
@@ -724,6 +785,8 @@ public final class D3D12Device extends D3D12Object {
      * @throws net.caffeinemc.mods.sodium.client.d3d12.interop.D3D12Exception if the call fails
      */
     public void evict(int objectCount, MemorySegment objects) {
+        requireArray(objectCount, objects, 8, "objects");
+
         try {
             int hr = (int) RESIDENCY.invokeExact(this.fn(Vtbl.ID3D12Device.EVICT), this.ptr(), objectCount, objects);
             Hr.check(hr, "ID3D12Device::Evict");
@@ -735,7 +798,7 @@ public final class D3D12Device extends D3D12Object {
     /**
      * Marks one object as evictable from GPU memory. Allocates a few bytes of temporary native memory.
      */
-    public void evict(DeviceChild pageable) {
+    public void evict(Pageable pageable) {
         try (Arena arena = Arena.ofConfined()) {
             MemorySegment array = arena.allocate(ADDRESS);
             array.set(ADDRESS, 0, pageable.ptr());
@@ -758,6 +821,12 @@ public final class D3D12Device extends D3D12Object {
      */
     public void getCopyableFootprints(MemorySegment resourceDesc, int firstSubresource, int subresourceCount, long baseOffset,
                                       MemorySegment layouts, MemorySegment numRows, MemorySegment rowSizeInBytes, MemorySegment totalBytes) {
+        requireSize(resourceDesc, D3D12ResourceDesc.SIZE, "resourceDesc");
+        requireArrayIfPresent(subresourceCount, layouts, D3D12PlacedSubresourceFootprint.SIZE, "layouts");
+        requireArrayIfPresent(subresourceCount, numRows, 4, "numRows");
+        requireArrayIfPresent(subresourceCount, rowSizeInBytes, 8, "rowSizeInBytes");
+        requireSizeIfPresent(totalBytes, 8, "totalBytes");
+
         try {
             GET_COPYABLE_FOOTPRINTS.invokeExact(this.fn(Vtbl.ID3D12Device.GET_COPYABLE_FOOTPRINTS), this.ptr(), resourceDesc,
                     firstSubresource, subresourceCount, baseOffset, orNull(layouts), orNull(numRows), orNull(rowSizeInBytes), orNull(totalBytes));
@@ -818,6 +887,8 @@ public final class D3D12Device extends D3D12Object {
      * unknown to the runtime)
      */
     public int checkFeatureSupport(int feature, MemorySegment data, int dataSize) {
+        requireSize(data, Integer.toUnsignedLong(dataSize), "data");
+
         try {
             return (int) CHECK_FEATURE_SUPPORT.invokeExact(this.fn(Vtbl.ID3D12Device.CHECK_FEATURE_SUPPORT), this.ptr(), feature, data, dataSize);
         } catch (Throwable t) {

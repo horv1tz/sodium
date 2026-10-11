@@ -16,20 +16,42 @@ public final class Kernel32 {
     public static final int WAIT_TIMEOUT = 258;
     public static final int WAIT_FAILED = 0xFFFFFFFF;
 
+    /**
+     * Native handles, linked on first use. They are held in an instance (not static fields) so that a failure to load
+     * kernel32 surfaces as a D3D12Exception on every call instead of a one-off ExceptionInInitializerError.
+     */
     private static final class Handles {
-        static final MethodHandle CREATE_EVENT = Win32Libraries.function(Win32Libraries.kernel32(), "CreateEventW",
+        final MethodHandle CREATE_EVENT = Win32Libraries.function(Win32Libraries.kernel32(), "CreateEventW",
                 FunctionDescriptor.of(ADDRESS, ADDRESS, JAVA_INT, JAVA_INT, ADDRESS));
-        static final MethodHandle WAIT_FOR_SINGLE_OBJECT = Win32Libraries.function(Win32Libraries.kernel32(), "WaitForSingleObject",
+        final MethodHandle WAIT_FOR_SINGLE_OBJECT = Win32Libraries.function(Win32Libraries.kernel32(), "WaitForSingleObject",
                 FunctionDescriptor.of(JAVA_INT, ADDRESS, JAVA_INT));
-        static final MethodHandle SET_EVENT = Win32Libraries.function(Win32Libraries.kernel32(), "SetEvent",
+        final MethodHandle SET_EVENT = Win32Libraries.function(Win32Libraries.kernel32(), "SetEvent",
                 FunctionDescriptor.of(JAVA_INT, ADDRESS));
-        static final MethodHandle RESET_EVENT = Win32Libraries.function(Win32Libraries.kernel32(), "ResetEvent",
+        final MethodHandle RESET_EVENT = Win32Libraries.function(Win32Libraries.kernel32(), "ResetEvent",
                 FunctionDescriptor.of(JAVA_INT, ADDRESS));
-        static final MethodHandle CLOSE_HANDLE = Win32Libraries.function(Win32Libraries.kernel32(), "CloseHandle",
+        final MethodHandle CLOSE_HANDLE = Win32Libraries.function(Win32Libraries.kernel32(), "CloseHandle",
                 FunctionDescriptor.of(JAVA_INT, ADDRESS));
     }
 
+    private static volatile Handles handles;
+
     private Kernel32() {
+    }
+
+    private static Handles handles() {
+        Handles h = handles;
+
+        if (h == null) {
+            synchronized (Kernel32.class) {
+                h = handles;
+
+                if (h == null) {
+                    handles = h = new Handles();
+                }
+            }
+        }
+
+        return h;
     }
 
     /**
@@ -39,7 +61,7 @@ public final class Kernel32 {
      */
     public static MemorySegment createEvent(boolean manualReset, boolean initiallySignalled) {
         try {
-            MemorySegment handle = (MemorySegment) Handles.CREATE_EVENT.invokeExact(MemorySegment.NULL,
+            MemorySegment handle = (MemorySegment) handles().CREATE_EVENT.invokeExact(MemorySegment.NULL,
                     manualReset ? 1 : 0, initiallySignalled ? 1 : 0, MemorySegment.NULL);
 
             if (handle.address() == 0L) {
@@ -58,7 +80,7 @@ public final class Kernel32 {
      */
     public static int waitForSingleObject(MemorySegment handle, int milliseconds) {
         try {
-            return (int) Handles.WAIT_FOR_SINGLE_OBJECT.invokeExact(handle, milliseconds);
+            return (int) handles().WAIT_FOR_SINGLE_OBJECT.invokeExact(handle, milliseconds);
         } catch (Throwable t) {
             throw Com.rethrow(t);
         }
@@ -66,7 +88,7 @@ public final class Kernel32 {
 
     public static void setEvent(MemorySegment handle) {
         try {
-            int ignored = (int) Handles.SET_EVENT.invokeExact(handle);
+            int ignored = (int) handles().SET_EVENT.invokeExact(handle);
         } catch (Throwable t) {
             throw Com.rethrow(t);
         }
@@ -74,7 +96,7 @@ public final class Kernel32 {
 
     public static void resetEvent(MemorySegment handle) {
         try {
-            int ignored = (int) Handles.RESET_EVENT.invokeExact(handle);
+            int ignored = (int) handles().RESET_EVENT.invokeExact(handle);
         } catch (Throwable t) {
             throw Com.rethrow(t);
         }
@@ -82,7 +104,7 @@ public final class Kernel32 {
 
     public static void closeHandle(MemorySegment handle) {
         try {
-            int ignored = (int) Handles.CLOSE_HANDLE.invokeExact(handle);
+            int ignored = (int) handles().CLOSE_HANDLE.invokeExact(handle);
         } catch (Throwable t) {
             throw Com.rethrow(t);
         }

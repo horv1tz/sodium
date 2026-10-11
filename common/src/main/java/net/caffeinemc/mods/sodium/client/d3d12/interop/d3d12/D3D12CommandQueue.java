@@ -22,7 +22,7 @@ import static java.lang.foreign.ValueLayout.JAVA_LONG;
  * <p>Thread safety: free-threaded. {@code ExecuteCommandLists}, {@code Signal} and {@code Wait} may be called from
  * any thread; they are ordered by the order in which the calls reach the queue.
  */
-public final class D3D12CommandQueue extends D3D12Object.DeviceChild {
+public final class D3D12CommandQueue extends D3D12Object.Pageable {
     /** Number of command list pointers the shared scratch area holds; larger submissions allocate. */
     private static final int SCRATCH_LISTS = 16;
 
@@ -94,6 +94,8 @@ public final class D3D12CommandQueue extends D3D12Object.DeviceChild {
      * @param lists native array of {@code count} {@code ID3D12CommandList*} (8 bytes each)
      */
     public void executeCommandLists(int count, MemorySegment lists) {
+        requireArray(count, lists, 8, "lists");
+
         try {
             EXECUTE_COMMAND_LISTS.invokeExact(this.fn(Vtbl.ID3D12CommandQueue.EXECUTE_COMMAND_LISTS), this.ptr(), count, lists);
         } catch (Throwable t) {
@@ -173,6 +175,8 @@ public final class D3D12CommandQueue extends D3D12Object.DeviceChild {
      * @param out at least {@link D3D12CommandQueueDesc#SIZE} bytes of native memory
      */
     public void getDesc(MemorySegment out) {
+        requireSize(out, D3D12CommandQueueDesc.SIZE, "out");
+
         try {
             long ignored = (long) GET_DESC.invokeExact(this.fn(Vtbl.ID3D12CommandQueue.GET_DESC), this.ptr(), out);
         } catch (Throwable t) {
@@ -191,6 +195,9 @@ public final class D3D12CommandQueue extends D3D12Object.DeviceChild {
     public record Desc(int type, int priority, int flags, int nodeMask) {
     }
 
+    /**
+     * Reads the description of this queue. Allocates temporary native memory; use {@link #getDesc(MemorySegment)} to avoid that.
+     */
     public Desc getDesc() {
         try (Arena arena = Arena.ofConfined()) {
             MemorySegment desc = D3D12CommandQueueDesc.allocate(arena);
@@ -209,6 +216,8 @@ public final class D3D12CommandQueue extends D3D12Object.DeviceChild {
      * @param size     size of {@code data} in bytes, including the terminator
      */
     public void setMarker(int metadata, MemorySegment data, int size) {
+        requireSize(data, Integer.toUnsignedLong(size), "data");
+
         try {
             MARKER.invokeExact(this.fn(Vtbl.ID3D12CommandQueue.SET_MARKER), this.ptr(), metadata, data, size);
         } catch (Throwable t) {
@@ -223,6 +232,8 @@ public final class D3D12CommandQueue extends D3D12Object.DeviceChild {
      * @param size     size of {@code data} in bytes, including the terminator
      */
     public void beginEvent(int metadata, MemorySegment data, int size) {
+        requireSize(data, Integer.toUnsignedLong(size), "data");
+
         try {
             MARKER.invokeExact(this.fn(Vtbl.ID3D12CommandQueue.BEGIN_EVENT), this.ptr(), metadata, data, size);
         } catch (Throwable t) {
@@ -230,6 +241,9 @@ public final class D3D12CommandQueue extends D3D12Object.DeviceChild {
         }
     }
 
+    /**
+     * Closes the event region opened by the last {@link #beginEvent(int, MemorySegment, int)} on this queue.
+     */
     public void endEvent() {
         try {
             END_EVENT.invokeExact(this.fn(Vtbl.ID3D12CommandQueue.END_EVENT), this.ptr());

@@ -144,14 +144,23 @@ public final class D3D12Debug extends ComObject {
          * {@code null}.
          */
         public record Filter(int[] categories, int[] severities, int[] ids) {
+            /**
+             * @return a filter that matches the given {@code D3D12_MESSAGE_ID} values ({@code Enums.MessageId})
+             */
             public static Filter ofIds(int... ids) {
                 return new Filter(null, null, ids);
             }
 
+            /**
+             * @return a filter that matches the given {@code D3D12_MESSAGE_SEVERITY} values ({@code Enums.MessageSeverity})
+             */
             public static Filter ofSeverities(int... severities) {
                 return new Filter(null, severities, null);
             }
 
+            /**
+             * @return a filter that matches the given {@code D3D12_MESSAGE_CATEGORY} values ({@code Enums.MessageCategory})
+             */
             public static Filter ofCategories(int... categories) {
                 return new Filter(categories, null, null);
             }
@@ -169,6 +178,9 @@ public final class D3D12Debug extends ComObject {
             }
         }
 
+        /**
+         * Discards all stored messages.
+         */
         public void clearStoredMessages() {
             try {
                 VOID_NOARGS.invokeExact(this.fn(Vtbl.ID3D12InfoQueue.CLEAR_STORED_MESSAGES), this.ptr());
@@ -192,22 +204,37 @@ public final class D3D12Debug extends ComObject {
             return this.count(Vtbl.ID3D12InfoQueue.GET_NUM_STORED_MESSAGES);
         }
 
+        /**
+         * @return the number of stored messages that pass the retrieval filter
+         */
         public long getNumStoredMessagesAllowedByRetrievalFilter() {
             return this.count(Vtbl.ID3D12InfoQueue.GET_NUM_STORED_MESSAGES_ALLOWED_BY_RETRIEVAL_FILTER);
         }
 
+        /**
+         * @return the number of messages that passed the storage filter since the queue was created
+         */
         public long getNumMessagesAllowedByStorageFilter() {
             return this.count(Vtbl.ID3D12InfoQueue.GET_NUM_MESSAGES_ALLOWED_BY_STORAGE_FILTER);
         }
 
+        /**
+         * @return the number of messages dropped by the storage filter since the queue was created
+         */
         public long getNumMessagesDeniedByStorageFilter() {
             return this.count(Vtbl.ID3D12InfoQueue.GET_NUM_MESSAGES_DENIED_BY_STORAGE_FILTER);
         }
 
+        /**
+         * @return the number of messages dropped because the message count limit was reached
+         */
         public long getNumMessagesDiscardedByMessageCountLimit() {
             return this.count(Vtbl.ID3D12InfoQueue.GET_NUM_MESSAGES_DISCARDED_BY_MESSAGE_COUNT_LIMIT);
         }
 
+        /**
+         * @return the maximum number of stored messages, see {@link #setMessageCountLimit(long)}
+         */
         public long getMessageCountLimit() {
             return this.count(Vtbl.ID3D12InfoQueue.GET_MESSAGE_COUNT_LIMIT);
         }
@@ -243,14 +270,29 @@ public final class D3D12Debug extends ComObject {
         }
 
         /**
-         * Reads all stored messages (oldest first) and then clears the queue.
+         * Reads all stored messages (oldest first) and then clears the queue. The debug layer offers no atomic "take", so a
+         * message that another thread adds after the last count check and before the final clear is dropped.
          */
         public List<Message> drainMessages() {
             long count = this.getNumStoredMessages();
             List<Message> messages = new ArrayList<>((int) Math.min(count, 1024));
 
             for (long i = 0; i < count; i++) {
-                messages.add(this.getMessage(i));
+                try {
+                    messages.add(this.getMessage(i));
+                } catch (D3D12Exception e) {
+                    if (e.getHresult() != Hr.E_INVALIDARG) {
+                        throw e;
+                    }
+
+                    // another thread cleared the queue underneath us: nothing more to read
+                    break;
+                }
+
+                if (i + 1 == count) {
+                    // pick up the messages that arrived while the earlier ones were being copied
+                    count = this.getNumStoredMessages();
+                }
             }
 
             this.clearStoredMessages();
@@ -285,10 +327,16 @@ public final class D3D12Debug extends ComObject {
             }
         }
 
+        /**
+         * Pushes an empty storage filter (which lets every message through); undo with {@link #popStorageFilter()}.
+         */
         public void pushEmptyStorageFilter() {
             this.hrCall(Vtbl.ID3D12InfoQueue.PUSH_EMPTY_STORAGE_FILTER, "ID3D12InfoQueue::PushEmptyStorageFilter");
         }
 
+        /**
+         * Pushes a copy of the current storage filter; undo with {@link #popStorageFilter()}.
+         */
         public void pushCopyOfStorageFilter() {
             this.hrCall(Vtbl.ID3D12InfoQueue.PUSH_COPY_OF_STORAGE_FILTER, "ID3D12InfoQueue::PushCopyOfStorageFilter");
         }
@@ -302,6 +350,9 @@ public final class D3D12Debug extends ComObject {
             }
         }
 
+        /**
+         * Pops the top of the storage filter stack.
+         */
         public void popStorageFilter() {
             try {
                 VOID_NOARGS.invokeExact(this.fn(Vtbl.ID3D12InfoQueue.POP_STORAGE_FILTER), this.ptr());
@@ -310,6 +361,9 @@ public final class D3D12Debug extends ComObject {
             }
         }
 
+        /**
+         * Removes all entries of the current storage filter.
+         */
         public void clearStorageFilter() {
             try {
                 VOID_NOARGS.invokeExact(this.fn(Vtbl.ID3D12InfoQueue.CLEAR_STORAGE_FILTER), this.ptr());
@@ -318,6 +372,9 @@ public final class D3D12Debug extends ComObject {
             }
         }
 
+        /**
+         * @return the number of storage filters on the stack
+         */
         public int getStorageFilterStackSize() {
             try {
                 return (int) INT_NOARGS.invokeExact(this.fn(Vtbl.ID3D12InfoQueue.GET_STORAGE_FILTER_STACK_SIZE), this.ptr());
@@ -387,14 +444,23 @@ public final class D3D12Debug extends ComObject {
             }
         }
 
+        /**
+         * @return whether the layer breaks into the debugger on messages of this {@code D3D12_MESSAGE_SEVERITY}
+         */
         public boolean getBreakOnSeverity(int severity) {
             return this.getBreak(Vtbl.ID3D12InfoQueue.GET_BREAK_ON_SEVERITY, severity);
         }
 
+        /**
+         * @return whether the layer breaks into the debugger on messages of this {@code D3D12_MESSAGE_CATEGORY}
+         */
         public boolean getBreakOnCategory(int category) {
             return this.getBreak(Vtbl.ID3D12InfoQueue.GET_BREAK_ON_CATEGORY, category);
         }
 
+        /**
+         * @return whether the layer breaks into the debugger on the message with this {@code D3D12_MESSAGE_ID}
+         */
         public boolean getBreakOnId(int id) {
             return this.getBreak(Vtbl.ID3D12InfoQueue.GET_BREAK_ON_ID, id);
         }
@@ -418,6 +484,9 @@ public final class D3D12Debug extends ComObject {
             }
         }
 
+        /**
+         * @return whether the layer is muted towards the debugger output, see {@link #setMuteDebugOutput(boolean)}
+         */
         public boolean getMuteDebugOutput() {
             try {
                 return (int) INT_NOARGS.invokeExact(this.fn(Vtbl.ID3D12InfoQueue.GET_MUTE_DEBUG_OUTPUT), this.ptr()) != 0;

@@ -8,7 +8,7 @@ import java.lang.foreign.MemorySegment;
  *
  * <p>Thread safety: immutable once created, free-threaded.
  */
-public final class D3D12CommandSignature extends D3D12Object.DeviceChild {
+public final class D3D12CommandSignature extends D3D12Object.Pageable {
     public D3D12CommandSignature(MemorySegment pointer) {
         super(pointer);
     }

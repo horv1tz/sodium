@@ -7,6 +7,8 @@ import net.caffeinemc.mods.sodium.client.d3d12.interop.Hr;
 import net.caffeinemc.mods.sodium.client.d3d12.interop.Win32Libraries;
 import net.caffeinemc.mods.sodium.client.d3d12.interop.abi.Enums;
 import net.caffeinemc.mods.sodium.client.d3d12.interop.abi.Iids;
+import net.caffeinemc.mods.sodium.client.d3d12.interop.abi.structs.D3D12RootSignatureDesc;
+import net.caffeinemc.mods.sodium.client.d3d12.interop.abi.structs.D3D12VersionedRootSignatureDesc;
 import net.caffeinemc.mods.sodium.client.d3d12.interop.compiler.D3DBlob;
 
 import java.lang.foreign.Arena;
@@ -265,10 +267,13 @@ public final class D3D12 {
      * @param desc    a {@code D3D12_ROOT_SIGNATURE_DESC} ({@code abi.structs.D3D12RootSignatureDesc}) with its
      *                parameter and static sampler arrays
      * @param version a {@code D3D_ROOT_SIGNATURE_VERSION} ({@code Enums.RootSignatureVersion}), normally {@code _1_0}
-     * @return the serialized root signature; pass it to {@link D3D12Device#createRootSignature(D3DBlob)}
+     * @return the serialized root signature (a new blob owned by the caller); pass it to
+     * {@link D3D12Device#createRootSignature(D3DBlob)}
      * @throws D3D12Exception if the description is invalid; the message includes the text of the error blob
      */
     public static D3DBlob serializeRootSignature(MemorySegment desc, int version) {
+        D3D12Object.requireSize(desc, D3D12RootSignatureDesc.SIZE, "desc");
+
         try (Arena arena = Arena.ofConfined()) {
             MemorySegment blob = arena.allocate(ADDRESS);
             MemorySegment error = arena.allocate(ADDRESS);
@@ -284,10 +289,13 @@ public final class D3D12 {
      * Serializes a versioned (1.0 or 1.1) root signature description.
      *
      * @param desc a {@code D3D12_VERSIONED_ROOT_SIGNATURE_DESC} ({@code abi.structs.D3D12VersionedRootSignatureDesc})
-     * @return the serialized root signature; pass it to {@link D3D12Device#createRootSignature(D3DBlob)}
+     * @return the serialized root signature (a new blob owned by the caller); pass it to
+     * {@link D3D12Device#createRootSignature(D3DBlob)}
      * @throws D3D12Exception if the description is invalid; the message includes the text of the error blob
      */
     public static D3DBlob serializeVersionedRootSignature(MemorySegment desc) {
+        D3D12Object.requireSize(desc, D3D12VersionedRootSignatureDesc.SIZE, "desc");
+
         try (Arena arena = Arena.ofConfined()) {
             MemorySegment blob = arena.allocate(ADDRESS);
             MemorySegment error = arena.allocate(ADDRESS);

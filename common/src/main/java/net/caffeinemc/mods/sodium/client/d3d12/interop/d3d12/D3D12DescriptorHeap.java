@@ -19,16 +19,18 @@ import static java.lang.foreign.ValueLayout.JAVA_LONG;
  * <p>The descriptor handles are plain addresses/offsets: the handle of descriptor {@code i} is
  * {@code start + i * incrementSize}, see {@link #handleAt(long, int, int)}.
  *
- * <p>Thread safety: free-threaded to hold; the handles returned are immutable for the lifetime of the heap.
+ * <p>Thread safety: free-threaded; the handles returned are immutable for the lifetime of the heap and are cached
+ * with safe publication, so any thread may ask for them.
  */
-public final class D3D12DescriptorHeap extends D3D12Object.DeviceChild {
+public final class D3D12DescriptorHeap extends D3D12Object.Pageable {
     private static final MethodHandle GET_DESC = Com.method(FunctionDescriptor.of(JAVA_LONG, ADDRESS, ADDRESS));
     private static final MethodHandle GET_HANDLE = Com.method(FunctionDescriptor.of(JAVA_LONG, ADDRESS, ADDRESS));
 
+    // The "known" flags are volatile and written after the handle, so a thread that sees a flag also sees its handle.
     private long cpuStart;
     private long gpuStart;
-    private boolean cpuStartKnown;
-    private boolean gpuStartKnown;
+    private volatile boolean cpuStartKnown;
+    private volatile boolean gpuStartKnown;
 
     public D3D12DescriptorHeap(MemorySegment pointer) {
         super(pointer);
@@ -40,6 +42,8 @@ public final class D3D12DescriptorHeap extends D3D12Object.DeviceChild {
      * @param out at least {@link D3D12DescriptorHeapDesc#SIZE} bytes of native memory
      */
     public void getDesc(MemorySegment out) {
+        requireSize(out, D3D12DescriptorHeapDesc.SIZE, "out");
+
         try {
             long ignored = (long) GET_DESC.invokeExact(this.fn(Vtbl.ID3D12DescriptorHeap.GET_DESC), this.ptr(), out);
         } catch (Throwable t) {
@@ -58,6 +62,9 @@ public final class D3D12DescriptorHeap extends D3D12Object.DeviceChild {
     public record Desc(int type, int numDescriptors, int flags, int nodeMask) {
     }
 
+    /**
+     * Reads the description of this heap. Allocates temporary native memory; use {@link #getDesc(MemorySegment)} to avoid that.
+     */
     public Desc getDesc() {
         try (Arena arena = Arena.ofConfined()) {
             MemorySegment desc = D3D12DescriptorHeapDesc.allocate(arena);
@@ -70,8 +77,11 @@ public final class D3D12DescriptorHeap extends D3D12Object.DeviceChild {
 
     /**
      * @return the {@code D3D12_CPU_DESCRIPTOR_HANDLE} of the first descriptor (cached after the first call)
+     * @throws IllegalStateException if the heap has been released
      */
     public long getCPUDescriptorHandleForHeapStart() {
+        this.ptr();
+
         if (!this.cpuStartKnown) {
             this.cpuStart = this.queryHandle(Vtbl.ID3D12DescriptorHeap.GET_CPU_DESCRIPTOR_HANDLE_FOR_HEAP_START);
             this.cpuStartKnown = true;
@@ -83,8 +93,11 @@ public final class D3D12DescriptorHeap extends D3D12Object.DeviceChild {
     /**
      * @return the {@code D3D12_GPU_DESCRIPTOR_HANDLE} of the first descriptor, or 0 if the heap is not shader visible
      * (cached after the first call)
+     * @throws IllegalStateException if the heap has been released
      */
     public long getGPUDescriptorHandleForHeapStart() {
+        this.ptr();
+
         if (!this.gpuStartKnown) {
             this.gpuStart = this.queryHandle(Vtbl.ID3D12DescriptorHeap.GET_GPU_DESCRIPTOR_HANDLE_FOR_HEAP_START);
             this.gpuStartKnown = true;

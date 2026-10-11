@@ -17,7 +17,7 @@ import static java.lang.foreign.ValueLayout.JAVA_INT;
  * <p>Thread safety: an allocator must not be used by several threads at once, and may back only one command list in
  * the recording state at a time.
  */
-public final class D3D12CommandAllocator extends D3D12Object.DeviceChild {
+public final class D3D12CommandAllocator extends D3D12Object.Pageable {
     private static final MethodHandle RESET = Com.method(FunctionDescriptor.of(JAVA_INT, ADDRESS));
 
     public D3D12CommandAllocator(MemorySegment pointer) {

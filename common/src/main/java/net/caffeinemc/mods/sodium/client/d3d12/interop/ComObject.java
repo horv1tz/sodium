@@ -106,6 +106,13 @@ public abstract class ComObject implements AutoCloseable {
         this.release();
     }
 
+    private static void requireIid(MemorySegment iid) {
+        // COM implementations dereference the IID without checking it, so a null or short segment would crash the JVM
+        if (iid.address() == 0L || iid.byteSize() < Guid.SIZE) {
+            throw new IllegalArgumentException("IID must be a 16-byte GUID segment");
+        }
+    }
+
     /**
      * Queries another interface of the same object.
      *
@@ -113,6 +120,8 @@ public abstract class ComObject implements AutoCloseable {
      * @param wrap constructor of the wrapper for the requested interface; receives the new interface pointer
      */
     public final <T extends ComObject> T queryInterface(MemorySegment iid, Function<MemorySegment, T> wrap) {
+        requireIid(iid);
+
         try (Arena arena = Arena.ofConfined()) {
             MemorySegment out = arena.allocate(ADDRESS);
             int hr = (int) QUERY_INTERFACE.invokeExact(this.fn(0), this.ptr(), iid, out);
@@ -129,6 +138,8 @@ public abstract class ComObject implements AutoCloseable {
      * object does not support the interface (E_NOINTERFACE).
      */
     public final <T extends ComObject> T tryQueryInterface(MemorySegment iid, Function<MemorySegment, T> wrap) {
+        requireIid(iid);
+
         try (Arena arena = Arena.ofConfined()) {
             MemorySegment out = arena.allocate(ADDRESS);
             int hr = (int) QUERY_INTERFACE.invokeExact(this.fn(0), this.ptr(), iid, out);

@@ -2,6 +2,7 @@ package net.caffeinemc.mods.sodium.client.d3d12.interop.d3d12;
 
 import net.caffeinemc.mods.sodium.client.d3d12.interop.Com;
 import net.caffeinemc.mods.sodium.client.d3d12.interop.Hr;
+import net.caffeinemc.mods.sodium.client.d3d12.interop.abi.Enums;
 import net.caffeinemc.mods.sodium.client.d3d12.interop.abi.Vtbl;
 import net.caffeinemc.mods.sodium.client.d3d12.interop.abi.structs.D3D12HeapProperties;
 import net.caffeinemc.mods.sodium.client.d3d12.interop.abi.structs.D3D12Range;
@@ -24,7 +25,7 @@ import static java.lang.foreign.ValueLayout.JAVA_LONG;
  * <p>Thread safety: free-threaded. Mapping the same subresource from several threads is allowed by D3D12 (the map is
  * reference counted) but the caller is responsible for synchronising access to the memory.
  */
-public final class D3D12Resource extends D3D12Object.DeviceChild {
+public final class D3D12Resource extends D3D12Object.Pageable {
     /** A {@code D3D12_RANGE} of {0, 0}: "nothing read" when mapping, "nothing written" when unmapping. */
     private static final MemorySegment EMPTY_RANGE = D3D12Range.allocate(Arena.global());
 
@@ -34,7 +35,7 @@ public final class D3D12Resource extends D3D12Object.DeviceChild {
     private static final MethodHandle GET_GPU_VIRTUAL_ADDRESS = Com.method(FunctionDescriptor.of(JAVA_LONG, ADDRESS));
     private static final MethodHandle GET_HEAP_PROPERTIES = Com.method(FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS, ADDRESS));
 
-    private long gpuVirtualAddress;
+    private volatile long gpuVirtualAddress;
 
     public D3D12Resource(MemorySegment pointer) {
         super(pointer);
@@ -50,6 +51,9 @@ public final class D3D12Resource extends D3D12Object.DeviceChild {
      * @return the raw HRESULT; {@code E_OUTOFMEMORY} means the address space for the mapping could not be reserved
      */
     public int map(int subresource, MemorySegment readRange, MemorySegment dataOut) {
+        requireSizeIfPresent(readRange, D3D12Range.SIZE, "readRange");
+        requireSize(dataOut, 8, "dataOut");
+
         try {
             return (int) MAP.invokeExact(this.fn(Vtbl.ID3D12Resource.MAP), this.ptr(), subresource, orNull(readRange), dataOut);
         } catch (Throwable t) {
@@ -58,22 +62,27 @@ public final class D3D12Resource extends D3D12Object.DeviceChild {
     }
 
     /**
-     * Maps a subresource that the CPU will only write (the usual case for upload heaps).
+     * Maps a subresource that the CPU will only write (the usual case for upload heaps). Allocates a few bytes of temporary
+     * native memory and queries the resource description: map upload buffers once and keep them mapped, and use the raw
+     * {@link #map(int, MemorySegment, MemorySegment)} where that matters.
      *
      * @param size the number of bytes of the mapped region to expose (for a buffer, its width)
      * @return a view of the mapped memory, valid until the matching {@link #unmap}
      * @throws net.caffeinemc.mods.sodium.client.d3d12.interop.D3D12Exception if the map fails
+     * @throws IllegalArgumentException if this is a buffer and {@code size} exceeds its width
      */
     public MemorySegment mapForWrite(int subresource, long size) {
         return this.map(subresource, EMPTY_RANGE, size);
     }
 
     /**
-     * Maps a subresource that the CPU may read (readback heaps). The whole subresource is assumed to be read.
+     * Maps a subresource that the CPU may read (readback heaps). The whole subresource is assumed to be read. Allocates, like
+     * {@link #mapForWrite(int, long)}.
      *
      * @param size the number of bytes of the mapped region to expose
      * @return a view of the mapped memory, valid until the matching {@link #unmap}
      * @throws net.caffeinemc.mods.sodium.client.d3d12.interop.D3D12Exception if the map fails
+     * @throws IllegalArgumentException if this is a buffer and {@code size} exceeds its width
      */
     public MemorySegment mapForRead(int subresource, long size) {
         return this.map(subresource, null, size);
@@ -84,6 +93,7 @@ public final class D3D12Resource extends D3D12Object.DeviceChild {
      *
      * @param readBegin first byte the CPU may read; {@code readBegin == readEnd} means nothing is read
      * @param size      the number of bytes of the mapped region to expose
+     * @throws IllegalArgumentException if this is a buffer and {@code size} exceeds its width
      */
     public MemorySegment map(int subresource, long readBegin, long readEnd, long size) {
         try (Arena arena = Arena.ofConfined()) {
@@ -97,6 +107,16 @@ public final class D3D12Resource extends D3D12Object.DeviceChild {
 
     private MemorySegment map(int subresource, MemorySegment readRange, long size) {
         try (Arena arena = Arena.ofConfined()) {
+            // the returned view is as large as the caller says; for a buffer, refuse a view that reaches past the end of the
+            // resource (writing there would corrupt native memory)
+            MemorySegment desc = D3D12ResourceDesc.allocate(arena);
+            this.getDesc(desc);
+
+            if (size < 0L || (D3D12ResourceDesc.getDimension(desc) == Enums.ResourceDimension.BUFFER && Long.compareUnsigned(size, D3D12ResourceDesc.getWidth(desc)) > 0)) {
+                throw new IllegalArgumentException("Cannot expose " + size + " bytes of a resource that is "
+                        + (size < 0L ? "being mapped with a negative size" : D3D12ResourceDesc.getWidth(desc) + " bytes wide"));
+            }
+
             MemorySegment out = arena.allocate(ADDRESS);
             Hr.check(this.map(subresource, readRange, out), "ID3D12Resource::Map");
 
@@ -111,6 +131,8 @@ public final class D3D12Resource extends D3D12Object.DeviceChild {
      *                     or {@code null} if the whole subresource may have been written
      */
     public void unmap(int subresource, MemorySegment writtenRange) {
+        requireSizeIfPresent(writtenRange, D3D12Range.SIZE, "writtenRange");
+
         try {
             UNMAP.invokeExact(this.fn(Vtbl.ID3D12Resource.UNMAP), this.ptr(), subresource, orNull(writtenRange));
         } catch (Throwable t) {
@@ -148,8 +170,12 @@ public final class D3D12Resource extends D3D12Object.DeviceChild {
     /**
      * @return the GPU virtual address of a buffer (cached after the first call), or 0 for resources that have none
      * (textures)
+     * @throws IllegalStateException if the resource has been released
      */
     public long getGPUVirtualAddress() {
+        // fails for a released resource even when the address is cached
+        this.ptr();
+
         long address = this.gpuVirtualAddress;
 
         if (address == 0L) {
@@ -171,6 +197,8 @@ public final class D3D12Resource extends D3D12Object.DeviceChild {
      * @param out at least {@link D3D12ResourceDesc#SIZE} bytes of native memory
      */
     public void getDesc(MemorySegment out) {
+        requireSize(out, D3D12ResourceDesc.SIZE, "out");
+
         try {
             long ignored = (long) GET_DESC.invokeExact(this.fn(Vtbl.ID3D12Resource.GET_DESC), this.ptr(), out);
         } catch (Throwable t) {
@@ -223,6 +251,9 @@ public final class D3D12Resource extends D3D12Object.DeviceChild {
      * @return the raw HRESULT; {@code E_INVALIDARG} for placed and reserved resources, which have no committed heap
      */
     public int getHeapProperties(MemorySegment propertiesOut, MemorySegment flagsOut) {
+        requireSizeIfPresent(propertiesOut, D3D12HeapProperties.SIZE, "propertiesOut");
+        requireSizeIfPresent(flagsOut, 4, "flagsOut");
+
         try {
             return (int) GET_HEAP_PROPERTIES.invokeExact(this.fn(Vtbl.ID3D12Resource.GET_HEAP_PROPERTIES), this.ptr(),
                     orNull(propertiesOut), orNull(flagsOut));

@@ -9,7 +9,7 @@ import java.lang.foreign.MemorySegment;
  *
  * <p>Thread safety: free-threaded to hold, but queries are recorded through a (single-threaded) command list.
  */
-public final class D3D12QueryHeap extends D3D12Object.DeviceChild {
+public final class D3D12QueryHeap extends D3D12Object.Pageable {
     public D3D12QueryHeap(MemorySegment pointer) {
         super(pointer);
     }

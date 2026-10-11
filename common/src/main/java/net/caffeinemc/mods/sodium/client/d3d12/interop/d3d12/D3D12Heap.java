@@ -18,7 +18,7 @@ import static java.lang.foreign.ValueLayout.JAVA_LONG;
  *
  * <p>Thread safety: free-threaded.
  */
-public final class D3D12Heap extends D3D12Object.DeviceChild {
+public final class D3D12Heap extends D3D12Object.Pageable {
     private static final MethodHandle GET_DESC = Com.method(FunctionDescriptor.of(JAVA_LONG, ADDRESS, ADDRESS));
 
     public D3D12Heap(MemorySegment pointer) {
@@ -31,6 +31,8 @@ public final class D3D12Heap extends D3D12Object.DeviceChild {
      * @param out at least {@link D3D12HeapDesc#SIZE} bytes of native memory
      */
     public void getDesc(MemorySegment out) {
+        requireSize(out, D3D12HeapDesc.SIZE, "out");
+
         try {
             // the method returns its hidden result pointer, which is not needed
             long ignored = (long) GET_DESC.invokeExact(this.fn(Vtbl.ID3D12Heap.GET_DESC), this.ptr(), out);

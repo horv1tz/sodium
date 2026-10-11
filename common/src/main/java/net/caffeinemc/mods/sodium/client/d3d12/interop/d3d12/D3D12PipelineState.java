@@ -19,7 +19,7 @@ import static java.lang.foreign.ValueLayout.JAVA_INT;
  *
  * <p>Thread safety: immutable once created, free-threaded.
  */
-public final class D3D12PipelineState extends D3D12Object.DeviceChild {
+public final class D3D12PipelineState extends D3D12Object.Pageable {
     private static final MethodHandle GET_CACHED_BLOB = Com.method(FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS));
 
     public D3D12PipelineState(MemorySegment pointer) {
