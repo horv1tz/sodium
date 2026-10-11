@@ -133,7 +133,13 @@ public final class DxgiAdapter extends ComObject {
     }
 
     /**
-     * Reads the adapter description. The result is cached after the first call.
+     * Reads the adapter description. The result is an immutable snapshot that is cached after the first call (a
+     * concurrent first call may read it twice, with identical results); the cached value stays available after the
+     * adapter has been released, which keeps {@link #toString()} usable for logging. The first call on a released
+     * adapter throws.
+     *
+     * @throws IllegalStateException if the adapter was released before the description was ever read
+     * @throws D3D12Exception        if the call fails
      */
     public Desc desc() {
         Desc desc = this.desc;
@@ -177,12 +183,15 @@ public final class DxgiAdapter extends ComObject {
      * {@code ID3D11Device}) and which driver version that is. Modern WDDM drivers report
      * {@code DXGI_ERROR_UNSUPPORTED} for interfaces they do not implement, including the D3D12 ones.
      *
-     * @param iid the interface to ask about
+     * @param iid the interface to ask about (a 16 byte GUID in native memory, see {@code Iids})
      * @return the 64-bit user mode driver version (a packed {@code LARGE_INTEGER}), or empty if the interface is not
      * supported
-     * @throws D3D12Exception on any failure other than {@code DXGI_ERROR_UNSUPPORTED}
+     * @throws IllegalArgumentException if {@code iid} is a null pointer
+     * @throws D3D12Exception           on any failure other than {@code DXGI_ERROR_UNSUPPORTED}
      */
     public OptionalLong checkInterfaceSupport(MemorySegment iid) {
+        Dxgi.requireIid(iid);
+
         try (Arena arena = Arena.ofConfined()) {
             MemorySegment version = arena.allocate(JAVA_LONG);
             int hr = (int) CHECK_INTERFACE_SUPPORT.invokeExact(this.fn(Vtbl.IDXGIAdapter.CHECK_INTERFACE_SUPPORT), this.ptr(), iid, version);
@@ -205,12 +214,22 @@ public final class DxgiAdapter extends ComObject {
      * @param nodeIndex    the adapter node (0 on single-GPU adapters)
      * @param segmentGroup {@link Enums.MemorySegmentGroup#LOCAL} for GPU-local memory or
      *                     {@link Enums.MemorySegmentGroup#NON_LOCAL} for system memory the GPU can reach
-     * @param out          receives a {@code DXGI_QUERY_VIDEO_MEMORY_INFO}; at least
-     *                     {@link DxgiQueryVideoMemoryInfo#SIZE} bytes
-     * @throws D3D12Exception if the call fails or the adapter does not support {@link #supportsVideoMemoryInfo()}
+     * @param out          native memory that receives a {@code DXGI_QUERY_VIDEO_MEMORY_INFO}; its
+     *                     {@link MemorySegment#byteSize()} has to be at least {@link DxgiQueryVideoMemoryInfo#SIZE}
+     *                     (a segment made with {@code MemorySegment.ofAddress} has size 0 and must be
+     *                     {@code reinterpret}ed first)
+     * @throws IllegalArgumentException if {@code out} is smaller than {@link DxgiQueryVideoMemoryInfo#SIZE}, so that
+     *                                  the native call can never write outside the caller's memory
+     * @throws D3D12Exception           if the call fails or the adapter does not support
+     *                                  {@link #supportsVideoMemoryInfo()}
      */
     public void queryVideoMemoryInfo(int nodeIndex, int segmentGroup, MemorySegment out) {
         this.requireMemoryInfo("QueryVideoMemoryInfo");
+
+        if (out.byteSize() < DxgiQueryVideoMemoryInfo.SIZE) {
+            throw new IllegalArgumentException("out has " + out.byteSize() + " bytes, DXGI_QUERY_VIDEO_MEMORY_INFO needs "
+                    + DxgiQueryVideoMemoryInfo.SIZE);
+        }
 
         try {
             int hr = (int) QUERY_VIDEO_MEMORY_INFO.invokeExact(this.fn(Vtbl.IDXGIAdapter3.QUERY_VIDEO_MEMORY_INFO), this.ptr(),
@@ -237,7 +256,9 @@ public final class DxgiAdapter extends ComObject {
     /**
      * Tells the OS how much video memory this process wants to keep resident. Requires {@code IDXGIAdapter3}.
      *
-     * @param bytes the reservation; must not exceed {@link MemoryInfo#availableForReservation()}
+     * @param nodeIndex    the adapter node (0 on single-GPU adapters)
+     * @param segmentGroup {@link Enums.MemorySegmentGroup#LOCAL} or {@link Enums.MemorySegmentGroup#NON_LOCAL}
+     * @param bytes        the reservation; must not exceed {@link MemoryInfo#availableForReservation()}
      * @throws D3D12Exception if the call fails (typically {@code E_INVALIDARG} for a reservation that is too large)
      */
     public void setVideoMemoryReservation(int nodeIndex, int segmentGroup, long bytes) {
@@ -255,7 +276,8 @@ public final class DxgiAdapter extends ComObject {
     /**
      * Registers an event that is signalled when the video memory budget changes. Requires {@code IDXGIAdapter3}.
      *
-     * @param event a Win32 event handle (see {@code Kernel32.createEvent})
+     * @param event a Win32 event handle (see {@code Kernel32.createEvent}); stays owned by the caller, who has to keep
+     *              it open until the notification has been unregistered
      * @return the cookie to pass to {@link #unregisterVideoMemoryBudgetChangeNotification(int)}
      * @throws D3D12Exception if the call fails
      */
@@ -274,6 +296,14 @@ public final class DxgiAdapter extends ComObject {
         }
     }
 
+    /**
+     * Stops the notifications requested with {@link #registerVideoMemoryBudgetChangeNotificationEvent}. Requires
+     * {@code IDXGIAdapter3}. The event handle itself stays owned by the caller. The native method returns nothing, so
+     * an unknown cookie is silently ignored by DXGI.
+     *
+     * @param cookie the value returned by {@link #registerVideoMemoryBudgetChangeNotificationEvent}
+     * @throws D3D12Exception if the adapter does not support {@link #supportsVideoMemoryInfo()}
+     */
     public void unregisterVideoMemoryBudgetChangeNotification(int cookie) {
         this.requireMemoryInfo("UnregisterVideoMemoryBudgetChangeNotification");
 

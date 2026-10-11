@@ -310,6 +310,10 @@ public final class D3DCompiler {
 
             D3DBlob blob = wrapBlob(out);
 
+            if (blob == null) {
+                throw new D3D12Exception("D3DDisassemble returned no text", hr);
+            }
+
             try {
                 return blob.asString();
             } finally {

@@ -249,10 +249,15 @@ public final class DxgiSwapChain extends ComObject {
      * @param bufferIndex index of the buffer; with flip-model swap chains only buffer 0 can be fetched on Windows 7,
      *                    all buffers on newer systems
      * @param iid         the interface to request, for example {@code Iids.ID3D12Resource}
-     * @return the raw interface pointer
-     * @throws D3D12Exception if the call fails
+     * @return the raw interface pointer; never null
+     * @throws IllegalArgumentException if {@code iid} is a null pointer
+     * @throws D3D12Exception           if the call fails (for example {@code E_INVALIDARG} for an index past the last
+     *                                  buffer or {@code E_NOINTERFACE} for an interface the buffer does not have); no
+     *                                  reference is held in this case
      */
     public MemorySegment getBuffer(int bufferIndex, MemorySegment iid) {
+        Dxgi.requireIid(iid);
+
         try (Arena arena = Arena.ofConfined()) {
             MemorySegment out = arena.allocate(ADDRESS);
             int hr = (int) GET_BUFFER.invokeExact(this.fn(Vtbl.IDXGISwapChain.GET_BUFFER), this.ptr(), bufferIndex, iid, out);

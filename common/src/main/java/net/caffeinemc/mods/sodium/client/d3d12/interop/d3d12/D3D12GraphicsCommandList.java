@@ -512,6 +512,20 @@ public final class D3D12GraphicsCommandList extends D3D12Object.DeviceChild {
      */
     public void resourceBarrierTransition(D3D12Resource resource, int subresource, int stateBefore, int stateAfter, int flags) {
         MemorySegment barrier = this.scratch.asSlice(S_BARRIER, D3D12ResourceBarrier.SIZE);
+        writeTransitionBarrier(barrier, resource, subresource, stateBefore, stateAfter, flags);
+
+        this.resourceBarrier(1, barrier);
+    }
+
+    /**
+     * Fills one {@code D3D12_RESOURCE_BARRIER} with a transition barrier, for building the arrays passed to
+     * {@link #resourceBarrier(int, MemorySegment)}. Does not allocate.
+     *
+     * @param barrier     a {@link D3D12ResourceBarrier#SIZE}-byte slice of the barrier array
+     * @param subresource a subresource index, or {@link #ALL_SUBRESOURCES}
+     * @param flags       {@code D3D12_RESOURCE_BARRIER_FLAGS} ({@code Enums.ResourceBarrierFlags})
+     */
+    public static void writeTransitionBarrier(MemorySegment barrier, D3D12Resource resource, int subresource, int stateBefore, int stateAfter, int flags) {
         D3D12ResourceBarrier.setType(barrier, Enums.ResourceBarrierType.TRANSITION);
         D3D12ResourceBarrier.setFlags(barrier, flags);
 
@@ -520,8 +534,6 @@ public final class D3D12GraphicsCommandList extends D3D12Object.DeviceChild {
         D3D12ResourceTransitionBarrier.setSubresource(transition, subresource);
         D3D12ResourceTransitionBarrier.setStateBefore(transition, stateBefore);
         D3D12ResourceTransitionBarrier.setStateAfter(transition, stateAfter);
-
-        this.resourceBarrier(1, barrier);
     }
 
     /**
@@ -989,7 +1001,12 @@ public final class D3D12GraphicsCommandList extends D3D12Object.DeviceChild {
     }
 
     /**
-     * @param buffer          a buffer holding a 64-bit predicate, or {@code null} to disable predication
+     * Makes the following draws, dispatches and copies conditional on a 64-bit value in a buffer. With
+     * {@code PredicationOp.EQUAL_ZERO} the commands are <b>skipped</b> while the value is zero (the usual "draw only if the
+     * occlusion query saw samples" setup); with {@code NOT_EQUAL_ZERO} they are skipped while it is non-zero.
+     *
+     * @param buffer          a buffer holding a 64-bit predicate, in {@code PREDICATION} (= {@code INDIRECT_ARGUMENT}) or
+     *                        {@code GENERIC_READ} state, or {@code null} to disable predication
      * @param alignedOffset   byte offset of the predicate, a multiple of 8
      * @param operation       a {@code D3D12_PREDICATION_OP} ({@code Enums.PredicationOp})
      */

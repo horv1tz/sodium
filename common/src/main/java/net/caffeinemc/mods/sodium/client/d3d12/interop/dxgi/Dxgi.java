@@ -122,8 +122,13 @@ public final class Dxgi {
      *
      * @param pointer an interface pointer of the object, of the interface at index 0 of {@code iids} or higher
      * @param iids    interface IDs ordered from the base to the most derived interface; the index is the level
+     * @throws D3D12Exception if {@code pointer} is a null pointer (checked before anything is dereferenced)
      */
     static Upgraded upgrade(MemorySegment pointer, MemorySegment[] iids) {
+        if (pointer.address() == 0L) {
+            throw new D3D12Exception("Null COM interface pointer");
+        }
+
         try (Arena arena = Arena.ofConfined()) {
             MemorySegment out = arena.allocate(ADDRESS);
 
@@ -141,6 +146,21 @@ public final class Dxgi {
         } catch (Throwable t) {
             throw Com.rethrow(t);
         }
+    }
+
+    /**
+     * DXGI dereferences a {@code REFIID} / {@code REFGUID} argument without checking it, so a null one crashes the
+     * process instead of returning an error.
+     *
+     * @return {@code iid}
+     * @throws IllegalArgumentException if {@code iid} is a null pointer
+     */
+    static MemorySegment requireIid(MemorySegment iid) {
+        if (iid.address() == 0L) {
+            throw new IllegalArgumentException("iid must not be a null pointer");
+        }
+
+        return iid;
     }
 
     private static MemorySegment slot(MemorySegment pointer, int slot) {

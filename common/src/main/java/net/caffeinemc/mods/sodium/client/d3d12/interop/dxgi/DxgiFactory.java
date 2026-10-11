@@ -245,7 +245,7 @@ public final class DxgiFactory extends ComObject {
      *
      * @param luid {@code LowPart} in the low 32 bits and {@code HighPart} in the high 32 bits, as in
      *             {@link DxgiAdapter.Desc#luid()}
-     * @return the adapter, or null if no adapter has this LUID
+     * @return the adapter, owning one reference that the caller has to close, or null if no adapter has this LUID
      * @throws D3D12Exception on any failure other than {@code DXGI_ERROR_NOT_FOUND}
      */
     public DxgiAdapter enumAdapterByLuid(long luid) {
@@ -335,9 +335,10 @@ public final class DxgiFactory extends ComObject {
      * Asks whether the system supports presenting with tearing ({@link DxgiSwapChain#PRESENT_ALLOW_TEARING}, needed for
      * variable refresh rate displays).
      *
-     * @return true if tearing is supported; false if it is not, if the runtime reports the feature query itself as
-     * unsupported ({@code DXGI_ERROR_UNSUPPORTED}, {@code E_NOTIMPL}), or if the factory is older than
-     * {@code IDXGIFactory5}
+     * @return true if tearing is supported; false if it is not, if the runtime does not know the feature query
+     * ({@code DXGI_ERROR_UNSUPPORTED}, {@code E_NOTIMPL}, and {@code E_INVALIDARG}, which Microsoft documents as
+     * "unsupported data type"), or if the factory is older than {@code IDXGIFactory5}. This is the conventional way
+     * to probe the feature: any of these answers just means "do not use tearing".
      * @throws D3D12Exception if the query fails for any other reason
      */
     public boolean isTearingSupported() {
@@ -350,7 +351,7 @@ public final class DxgiFactory extends ComObject {
             int hr = (int) CHECK_FEATURE_SUPPORT.invokeExact(this.fn(Vtbl.IDXGIFactory5.CHECK_FEATURE_SUPPORT), this.ptr(),
                     Enums.DxgiFeature.DXGI_FEATURE_PRESENT_ALLOW_TEARING, out, (int) JAVA_INT.byteSize());
 
-            if (hr == Hr.DXGI_ERROR_UNSUPPORTED || hr == Hr.E_NOTIMPL) {
+            if (hr == Hr.DXGI_ERROR_UNSUPPORTED || hr == Hr.E_NOTIMPL || hr == Hr.E_INVALIDARG) {
                 return false;
             }
 

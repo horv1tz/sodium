@@ -12,10 +12,17 @@ public class D3DShaderCompileException extends D3D12Exception {
     private final String entryPoint;
     private final String target;
 
+    /**
+     * @param hresult        the failing HRESULT (or {@code E_FAIL} if the compiler returned none)
+     * @param compilerOutput the compiler's diagnostic text; null is treated as empty
+     * @param sourceName     the name given for the source, or null
+     * @param entryPoint     the requested entry point, or null
+     * @param target         the requested target profile
+     */
     public D3DShaderCompileException(int hresult, String compilerOutput, String sourceName, String entryPoint, String target) {
         super("Shader compilation failed for " + describe(sourceName, entryPoint, target), hresult);
 
-        this.compilerOutput = compilerOutput;
+        this.compilerOutput = compilerOutput == null ? "" : compilerOutput;
         this.sourceName = sourceName;
         this.entryPoint = entryPoint;
         this.target = target;

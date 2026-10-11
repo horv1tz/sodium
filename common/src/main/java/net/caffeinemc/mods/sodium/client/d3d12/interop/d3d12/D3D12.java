@@ -24,6 +24,23 @@ import static java.lang.foreign.ValueLayout.JAVA_INT;
  * on a non-Windows system the methods throw {@link D3D12Exception}. Native access must be enabled for the module
  * ({@code --enable-native-access}), otherwise a {@link D3D12Exception} explaining so is thrown as well.
  *
+ * <p>A typical start-up and frame, with the wrappers of this package:
+ *
+ * <pre>{@code
+ * D3D12.enableDebugLayer();                                           // optional, before the device exists
+ * try (D3D12Device device = D3D12.createDevice();
+ *      D3D12CommandQueue queue = device.createCommandQueue(Enums.CommandListType.DIRECT);
+ *      D3D12CommandAllocator allocator = device.createCommandAllocator(Enums.CommandListType.DIRECT);
+ *      D3D12GraphicsCommandList list = device.createCommandList(Enums.CommandListType.DIRECT, allocator);   // recording
+ *      D3D12Fence fence = device.createFence(0)) {
+ *     list.resourceBarrierTransition(texture, Enums.ResourceStates.COPY_DEST, Enums.ResourceStates.PIXEL_SHADER_RESOURCE);
+ *     list.closeList();
+ *     queue.executeCommandLists(list);
+ *     queue.signal(fence, 1);
+ *     fence.waitForValue(1, 5000);          // the GPU is done: allocator.reset(); list.reset(allocator); ...
+ * }
+ * }</pre>
+ *
  * <p>Thread safety: all methods are free-threaded.
  */
 public final class D3D12 {

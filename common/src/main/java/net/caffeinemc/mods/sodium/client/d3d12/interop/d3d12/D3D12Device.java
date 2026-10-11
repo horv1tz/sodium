@@ -5,7 +5,9 @@ import net.caffeinemc.mods.sodium.client.d3d12.interop.Hr;
 import net.caffeinemc.mods.sodium.client.d3d12.interop.abi.Enums;
 import net.caffeinemc.mods.sodium.client.d3d12.interop.abi.Iids;
 import net.caffeinemc.mods.sodium.client.d3d12.interop.abi.Vtbl;
+import net.caffeinemc.mods.sodium.client.d3d12.interop.abi.structs.D3D12ClearValue;
 import net.caffeinemc.mods.sodium.client.d3d12.interop.abi.structs.D3D12CommandQueueDesc;
+import net.caffeinemc.mods.sodium.client.d3d12.interop.abi.structs.D3D12DepthStencilValue;
 import net.caffeinemc.mods.sodium.client.d3d12.interop.abi.structs.D3D12DescriptorHeapDesc;
 import net.caffeinemc.mods.sodium.client.d3d12.interop.abi.structs.D3D12FeatureDataArchitecture;
 import net.caffeinemc.mods.sodium.client.d3d12.interop.abi.structs.D3D12FeatureDataD3D12Options;
@@ -27,6 +29,7 @@ import net.caffeinemc.mods.sodium.client.d3d12.interop.compiler.D3DBlob;
 import java.lang.foreign.Arena;
 import java.lang.foreign.FunctionDescriptor;
 import java.lang.foreign.MemorySegment;
+import java.lang.foreign.SegmentAllocator;
 import java.lang.invoke.MethodHandle;
 
 import static java.lang.foreign.ValueLayout.ADDRESS;
@@ -107,7 +110,8 @@ public final class D3D12Device extends D3D12Object {
     }
 
     /**
-     * @return the debug layer's info queue of this device, or {@code null} if the debug layer is not enabled
+     * @return the debug layer's info queue of this device (a new wrapper owning one reference, to be closed by the caller),
+     * or {@code null} if the debug layer is not enabled
      */
     public D3D12Debug.InfoQueue getInfoQueue() {
         return this.tryQueryInterface(Iids.ID3D12InfoQueue, D3D12Debug.InfoQueue::new);
@@ -368,6 +372,43 @@ public final class D3D12Device extends D3D12Object {
 
             return this.createCommittedResource(properties, Enums.HeapFlags.NONE, desc, initialState, clearValue);
         }
+    }
+
+    /**
+     * Builds a {@code D3D12_CLEAR_VALUE} for a colour render target, to pass as the {@code clearValue} of the texture creation
+     * methods. Clears with exactly this colour are the fast path on many GPUs.
+     *
+     * @param allocator where to allocate the struct (an arena that outlives the creation call)
+     * @param format    the {@code DXGI_FORMAT} of the render target view
+     */
+    public static MemorySegment colorClearValue(SegmentAllocator allocator, int format, float red, float green, float blue, float alpha) {
+        MemorySegment value = D3D12ClearValue.allocate(allocator);
+        D3D12ClearValue.setFormat(value, format);
+        D3D12ClearValue.setColor(value, 0, red);
+        D3D12ClearValue.setColor(value, 1, green);
+        D3D12ClearValue.setColor(value, 2, blue);
+        D3D12ClearValue.setColor(value, 3, alpha);
+
+        return value;
+    }
+
+    /**
+     * Builds a {@code D3D12_CLEAR_VALUE} for a depth-stencil texture, to pass as the {@code clearValue} of the texture creation
+     * methods.
+     *
+     * @param allocator where to allocate the struct (an arena that outlives the creation call)
+     * @param format    the {@code DXGI_FORMAT} of the depth-stencil view
+     */
+    public static MemorySegment depthStencilClearValue(SegmentAllocator allocator, int format, float depth, int stencil) {
+        MemorySegment value = D3D12ClearValue.allocate(allocator);
+        D3D12ClearValue.setFormat(value, format);
+
+        MemorySegment depthStencil = D3D12DepthStencilValue.allocate(allocator);
+        D3D12DepthStencilValue.setDepth(depthStencil, depth);
+        D3D12DepthStencilValue.setStencil(depthStencil, (byte) stencil);
+        D3D12ClearValue.setDepthStencil(value, depthStencil);
+
+        return value;
     }
 
     private static MemorySegment heapProperties(Arena arena, int heapType) {
