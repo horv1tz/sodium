@@ -13,6 +13,7 @@ public abstract class MultiDrawBatch {
             case OPENGL -> new GLDrawBatch(capacity);
             case VK_MULTIDRAW -> new VKMultiDrawBatch(capacity);
             case VK_INDIRECT -> new VKIndirectDrawBatch(capacity);
+            case D3D12_INDIRECT -> new D3D12IndirectDrawBatch(capacity);
         };
     }
 

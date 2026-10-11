@@ -14,6 +14,8 @@ public abstract class DrawContext {
             return new VKMultiDrawContext();
         } else if (DrawBackend.BACKEND == DrawBackend.VK_INDIRECT) {
             return new VKIndirectContext();
+        } else if (DrawBackend.BACKEND == DrawBackend.D3D12_INDIRECT) {
+            return new D3D12IndirectContext();
         }
 
         throw new IllegalStateException("Unknown backend");
