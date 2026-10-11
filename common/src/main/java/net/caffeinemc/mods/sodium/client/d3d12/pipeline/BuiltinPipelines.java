@@ -1,9 +1,22 @@
-// Owner: WP3 (pipelines + render pass); consumers: WP4 (PresentBlit, StartupProbes)
+// Owner: WP3 (pipelines + render pass) - implemented; consumers: WP4 (PresentBlit, StartupProbes)
 package net.caffeinemc.mods.sodium.client.d3d12.pipeline;
 
+import com.mojang.renderpearl.api.GpuFormat;
+import com.mojang.renderpearl.api.pipeline.BindGroupLayout;
+import com.mojang.renderpearl.api.pipeline.ColorTargetState;
+import com.mojang.renderpearl.api.pipeline.PolygonMode;
+import com.mojang.renderpearl.api.pipeline.PrimitiveTopology;
+import com.mojang.renderpearl.api.pipeline.UniformType;
+import com.mojang.renderpearl.backend.api.BackendRenderPipeline;
 import net.caffeinemc.mods.sodium.client.d3d12.core.DeviceContext;
+import net.caffeinemc.mods.sodium.client.d3d12.core.FormatInfo;
+import net.caffeinemc.mods.sodium.client.d3d12.core.Formats;
+import net.caffeinemc.mods.sodium.client.d3d12.interop.abi.Enums;
+import net.caffeinemc.mods.sodium.client.d3d12.interop.d3d12.D3D12PipelineState;
 import org.jspecify.annotations.Nullable;
 
+import java.util.List;
+import java.util.Optional;
 import java.util.function.UnaryOperator;
 
 /**
@@ -21,6 +34,32 @@ import java.util.function.UnaryOperator;
  * ({@code PresentBlit}) gets the same instance.
  */
 public final class BuiltinPipelines {
+    /** The present blit shader pair (see {@link #fullscreenBlit}). */
+    static final String BLIT_HLSL = """
+            cbuffer PC : register(b13)
+            {
+                uint2 copySize;
+            };
+
+            Texture2D<float4> Src : register(t0);
+
+            float4 vs(uint id : SV_VertexID) : SV_Position
+            {
+                float2 t = float2((id << 1) & 2, id & 2);
+                return float4(t * 2.0 - 1.0, 0.0, 1.0);
+            }
+
+            float4 ps(float4 p : SV_Position) : SV_Target0
+            {
+                uint2 q = (uint2) p.xy;
+                if (q.x >= copySize.x || q.y >= copySize.y)
+                {
+                    return float4(0.0, 0.0, 0.0, 1.0);
+                }
+                return Src.Load(int3(q.x, copySize.y - 1 - q.y, 0));
+            }
+            """;
+
     /** Tests only: rewrites the built-in HLSL before it is compiled (to inject a compile failure). */
     private static volatile @Nullable UnaryOperator<String> sourceTransformForTests;
 
@@ -64,7 +103,15 @@ public final class BuiltinPipelines {
      * @throws RuntimeException compiler text or HRESULT of the first failing step (no partial state is kept)
      */
     public static D3D12RenderPipeline fullscreenBlit(DeviceContext ctx, int rtvDxgiFormat) {
-        throw new UnsupportedOperationException("WP3: HLSL above -> HlslCompiler -> PSO (no depth) -> D3D12RenderPipeline");
+        D3D12PipelineCompiler compiler = ctx.pipelineCompiler();
+
+        return compiler.builtin("present-blit:" + rtvDxgiFormat, () -> {
+            SlotLayout layout = compiler.layouts().intern(SlotLayout.of(
+                    List.of(new SlotInfo("blit_src", SlotKind.TEXTURE, 0, true, false, Formats.BASE_FLOAT, null)), 2, false));
+
+            return build(ctx, "present blit", BLIT_HLSL, layout, rtvDxgiFormat, Enums.PrimitiveTopologyType.TRIANGLE,
+                    Enums.PrimitiveTopology.D3D10_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        });
     }
 
     /**
@@ -77,6 +124,59 @@ public final class BuiltinPipelines {
      */
     public static D3D12RenderPipeline fromHlsl(DeviceContext ctx, String name, String hlsl, SlotLayout layout,
                                                int rtvDxgiFormat, int topologyType, int topology) {
-        throw new UnsupportedOperationException("WP3");
+        D3D12PipelineCompiler compiler = ctx.pipelineCompiler();
+
+        return compiler.guarded("built-in pipeline " + name, () -> build(ctx, name, hlsl, compiler.layouts().intern(layout),
+                rtvDxgiFormat, topologyType, topology));
+    }
+
+    /**
+     * Compiles {@code vs} / {@code ps} of {@code hlsl} and creates both PSO variants (the DSV format is baked into the PSO;
+     * these pipelines have no depth state, so the variant without a depth format exists too). Nothing is kept on failure.
+     */
+    private static D3D12RenderPipeline build(DeviceContext ctx, String name, String hlsl, SlotLayout layout, int rtvDxgiFormat,
+                                             int topologyType, int topology) {
+        D3D12PipelineCompiler compiler = ctx.pipelineCompiler();
+        String text = transformSource(hlsl);
+        byte[] vertex = compiler.hlsl().compile(text, "vs", "vs_5_0", name + "/vs");
+        byte[] pixel = compiler.hlsl().compile(text, "ps", "ps_5_0", name + "/ps");
+        List<BindGroupLayout.UniformDescription> uniforms = layout.slots().stream()
+                .map(slot -> new BindGroupLayout.UniformDescription(slot.name(), UniformType.COMBINED_IMAGE_SAMPLER))
+                .toList();
+        BackendRenderPipeline.CreateInfo info = new BackendRenderPipeline.CreateInfo("builtin:" + name, List.of(), List.of(), List.of(),
+                uniforms, layout.pushDwords() * 4, null, PolygonMode.FILL, false,
+                List.of(new ColorTargetState(Optional.empty(), colorFormat(rtvDxgiFormat), ColorTargetState.WRITE_ALL)),
+                PrimitiveTopology.TRIANGLES);
+
+        D3D12PipelineState withDepth = PipelineStateBuilder.create(ctx, info, vertex, pixel, true, topologyType);
+        D3D12PipelineState withoutDepth = null;
+
+        try {
+            withoutDepth = PipelineStateBuilder.create(ctx, info, vertex, pixel, false, topologyType);
+
+            return new D3D12RenderPipeline(ctx, "builtin:" + name, withDepth, withoutDepth, layout, new int[16], 0, topology, false, false);
+        } catch (Throwable t) {
+            // never recorded: released at once
+            withDepth.close();
+
+            if (withoutDepth != null) {
+                withoutDepth.close();
+            }
+
+            throw t;
+        }
+    }
+
+    /** @return the {@link GpuFormat} whose render-target view format is {@code dxgiFormat} (the PSO builder takes {@code GpuFormat}s) */
+    private static GpuFormat colorFormat(int dxgiFormat) {
+        for (GpuFormat format : GpuFormat.values()) {
+            FormatInfo info = Formats.of(format);
+
+            if (!info.depth() && info.textureOk() && info.rtvFormat() == dxgiFormat) {
+                return format;
+            }
+        }
+
+        throw new IllegalArgumentException("DXGI format " + dxgiFormat + " is not a render-target format of the backend");
     }
 }

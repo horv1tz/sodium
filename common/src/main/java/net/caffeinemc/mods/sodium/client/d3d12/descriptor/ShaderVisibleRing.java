@@ -1,6 +1,7 @@
-// Owner: WP4 (descriptors) - implemented over PagedBumpAllocator; WP4 owner tests it under Wine 11 (tiny pages force paging)
+// Owner: WP4 (descriptors) - implemented over PagedBumpAllocator; tested by RingTest (L0 fakes, L1 tiny pages on Wine 11)
 package net.caffeinemc.mods.sodium.client.d3d12.descriptor;
 
+import net.caffeinemc.mods.sodium.client.d3d12.core.D3D12Log;
 import net.caffeinemc.mods.sodium.client.d3d12.interop.d3d12.D3D12DescriptorHeap;
 import net.caffeinemc.mods.sodium.client.d3d12.interop.d3d12.D3D12Device;
 
@@ -116,30 +117,43 @@ public final class ShaderVisibleRing implements AutoCloseable {
         }, heapType, device.getDescriptorHandleIncrementSize(heapType), pageDescriptors, maxPages, slotCount);
     }
 
-    /** Test constructor (fake pages). */
+    /**
+     * Test constructor (fake pages). The first page of every slot is created eagerly; if any creation fails, the pages
+     * already created are closed and the exception is rethrown (a failing constructor leaves nothing behind).
+     */
     public ShaderVisibleRing(PageFactory factory, int heapType, int incrementSize, int pageDescriptors, int maxPages,
                              int slotCount) {
+        if (slotCount < 1 || pageDescriptors < TABLE_DESCRIPTORS) {
+            throw new IllegalArgumentException("invalid ring geometry: " + slotCount + " slots of pages of " + pageDescriptors);
+        }
+
         this.heapType = heapType;
         this.pageDescriptors = pageDescriptors;
         this.incrementSize = incrementSize;
         this.slots = new SlotRing[slotCount];
         this.tableCache = new DescriptorTableCache(Math.min(MAX_CACHE_SLOTS, 2 * (pageDescriptors / TABLE_DESCRIPTORS)));
 
-        for (int i = 0; i < slotCount; i++) {
-            SlotRing slot = new SlotRing();
+        try {
+            for (int i = 0; i < slotCount; i++) {
+                SlotRing slot = new SlotRing();
 
-            slot.allocator = new PagedBumpAllocator(pageDescriptors, maxPages, index -> {
-                while (slot.pages.size() <= index) {
-                    slot.pages.add(factory.create(pageDescriptors));
-                }
-            });
+                slot.allocator = new PagedBumpAllocator(pageDescriptors, maxPages, index -> {
+                    while (slot.pages.size() <= index) {
+                        slot.pages.add(factory.create(pageDescriptors));
+                    }
+                });
 
-            this.slots[i] = slot;
+                this.slots[i] = slot;
+            }
+
+            this.current = this.slots[0];
+            this.currentSlot = 0;
+            this.selectPage(true);
+        } catch (Throwable t) {
+            this.close();
+
+            throw t;
         }
-
-        this.current = this.slots[0];
-        this.currentSlot = 0;
-        this.selectPage(true);
     }
 
     /**
@@ -252,12 +266,20 @@ public final class ShaderVisibleRing implements AutoCloseable {
         return this.pageDescriptors;
     }
 
-    /** Releases every page. Call only after the GPU is idle. */
+    /** Releases every page. Call only after the GPU is idle. Idempotent; never throws. */
     @Override
     public void close() {
         for (SlotRing slot : this.slots) {
+            if (slot == null) {
+                continue;
+            }
+
             for (HeapPage page : slot.pages) {
-                page.close();
+                try {
+                    page.close();
+                } catch (RuntimeException e) {
+                    D3D12Log.warn("Could not release a shader-visible descriptor heap page: {}", e.toString());
+                }
             }
 
             slot.pages.clear();

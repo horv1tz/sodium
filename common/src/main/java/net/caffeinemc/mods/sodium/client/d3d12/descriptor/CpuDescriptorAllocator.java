@@ -1,11 +1,13 @@
-// Owner: WP4 (descriptors) - implemented; WP4 owner adds CpuDescriptorAllocatorTest (fake PageFactory)
+// Owner: WP4 (descriptors) - implemented (double-free detection, free after close is a no-op); tested by CpuDescriptorAllocatorTest
 package net.caffeinemc.mods.sodium.client.d3d12.descriptor;
 
+import net.caffeinemc.mods.sodium.client.d3d12.core.D3D12Log;
 import net.caffeinemc.mods.sodium.client.d3d12.interop.d3d12.D3D12DescriptorHeap;
 import net.caffeinemc.mods.sodium.client.d3d12.interop.d3d12.D3D12Device;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.BitSet;
 import java.util.List;
 
 /**
@@ -18,6 +20,11 @@ import java.util.List;
  * <p>Recommended page capacities: CBV/SRV/UAV 4096, RTV 512, DSV 128, SAMPLER 1024 (limit 2048). Thread-safe
  * ({@code synchronized}; creation paths are not hot). {@link #free} must only be called from deferral entries or after
  * a GPU idle.
+ *
+ * <p>Misuse is detected, not absorbed: freeing a foreign handle or a slot that is not allocated (a double free) throws
+ * {@link IllegalArgumentException} and leaves the free list untouched, so two owners can never be handed the same
+ * descriptor. After {@link #close()} the pages are gone: {@link #allocate} fails with {@link IllegalStateException} and
+ * {@link #free} is a no-op (a texture closed from a worker thread after the device was closed must not throw).
  */
 public final class CpuDescriptorAllocator implements AutoCloseable {
     /** One non-shader-visible heap; unit tests provide fakes. */
@@ -36,6 +43,8 @@ public final class CpuDescriptorAllocator implements AutoCloseable {
     private static final class Page {
         final HeapPage heap;
         final int capacity;
+        /** Slots currently handed out (guards against double frees). */
+        final BitSet used = new BitSet();
         int nextUnused;
         int[] recycled = new int[16];
         int recycledCount;
@@ -111,21 +120,39 @@ public final class CpuDescriptorAllocator implements AutoCloseable {
     }
 
     /**
-     * Returns a slot to the allocator. Freeing a handle twice or a foreign handle is a programming error and is
-     * reported with {@link IllegalArgumentException} (foreign) or silently corrupts the free list (double free): owners
-     * must free exactly once.
+     * Returns a slot to the allocator. A no-op after {@link #close()} (the heaps no longer exist).
+     *
+     * @throws IllegalArgumentException if the handle does not belong to this allocator or the slot is not allocated
+     *                                  (double free); the allocator is unchanged in both cases
      */
     public synchronized void free(long handle) {
+        if (this.closed) {
+            return;
+        }
+
         for (Page page : this.pages) {
             long start = page.heap.cpuStart();
             long end = start + (long) page.capacity * this.incrementSize;
 
             if (handle >= start && handle < end) {
+                long offset = handle - start;
+
+                if (offset % this.incrementSize != 0L) {
+                    throw new IllegalArgumentException("descriptor handle 0x" + Long.toHexString(handle) + " is not aligned to a descriptor slot");
+                }
+
+                int index = (int) (offset / this.incrementSize);
+
+                if (!page.used.get(index)) {
+                    throw new IllegalArgumentException("descriptor handle 0x" + Long.toHexString(handle) + " is not allocated (double free)");
+                }
+
                 if (page.recycledCount == page.recycled.length) {
                     page.recycled = Arrays.copyOf(page.recycled, page.recycledCount * 2);
                 }
 
-                page.recycled[page.recycledCount++] = (int) ((handle - start) / this.incrementSize);
+                page.used.clear(index);
+                page.recycled[page.recycledCount++] = index;
 
                 return;
             }
@@ -145,18 +172,25 @@ public final class CpuDescriptorAllocator implements AutoCloseable {
         return live;
     }
 
+    /** Releases every page. GPU idle assumed. Idempotent; never throws. */
     @Override
     public synchronized void close() {
         this.closed = true;
 
         for (Page page : this.pages) {
-            page.heap.close();
+            try {
+                page.heap.close();
+            } catch (RuntimeException e) {
+                D3D12Log.warn("Could not release a descriptor heap page: {}", e.toString());
+            }
         }
 
         this.pages.clear();
     }
 
     private long handle(Page page, int index) {
+        page.used.set(index);
+
         return page.heap.cpuStart() + (long) index * this.incrementSize;
     }
 }

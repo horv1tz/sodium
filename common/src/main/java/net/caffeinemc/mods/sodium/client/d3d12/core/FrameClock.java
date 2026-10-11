@@ -6,6 +6,8 @@ import net.caffeinemc.mods.sodium.client.d3d12.interop.d3d12.D3D12CommandQueue;
 import net.caffeinemc.mods.sodium.client.d3d12.interop.d3d12.D3D12Device;
 import net.caffeinemc.mods.sodium.client.d3d12.interop.d3d12.D3D12Fence;
 
+import java.util.concurrent.atomic.AtomicLongFieldUpdater;
+
 /**
  * The frame counter and its fence: "frame" == one {@code CommandEncoderBackend.submit()}, fence value == frame index
  * (invariant I1; spec 01 section 1.4).
@@ -81,6 +83,8 @@ public final class FrameClock implements AutoCloseable {
     private final FrameFence auxFence;
     private final ErrorPolicy errors;
 
+    private static final AtomicLongFieldUpdater<FrameClock> COMPLETED = AtomicLongFieldUpdater.newUpdater(FrameClock.class, "completed");
+
     private volatile long current = FIRST_FRAME;
     private volatile long completed = FIRST_FRAME - 1;
     private long auxValue;
@@ -127,11 +131,14 @@ public final class FrameClock implements AutoCloseable {
             throw new IllegalStateException("ID3D12Fence reported UINT64_MAX but the device was not removed");
         }
 
-        if (value > this.completed) {
-            this.completed = value;
+        // monotonic even if two threads poll concurrently (a plain check-then-set could move it backwards)
+        long seen = this.completed;
+
+        while (value > seen && !COMPLETED.compareAndSet(this, seen, value)) {
+            seen = this.completed;
         }
 
-        return this.completed;
+        return Math.max(value, seen);
     }
 
     /**

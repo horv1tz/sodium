@@ -1,10 +1,12 @@
-// Owner: WP1 (device core)
+// Owner: WP1 (device core) - implemented
 package net.caffeinemc.mods.sodium.client.d3d12.resource;
 
 import com.mojang.renderpearl.api.textures.AddressMode;
 import com.mojang.renderpearl.api.textures.FilterMode;
 import com.mojang.renderpearl.api.textures.GpuSampler;
+import net.caffeinemc.mods.sodium.client.d3d12.core.D3D12Log;
 import net.caffeinemc.mods.sodium.client.d3d12.core.DeviceContext;
+import org.jspecify.annotations.Nullable;
 
 import java.util.OptionalDouble;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -29,10 +31,13 @@ public final class D3D12Sampler implements GpuSampler {
     private final int maxAnisotropy;
     private final OptionalDouble maxLod;
     private final long cpuHandle;
+    private final @Nullable ResourceCounters counters;
     private final AtomicBoolean closed = new AtomicBoolean();
 
+    /** Registers the sampler in the {@code ObjectRegistry} (the frontend's sampler cache may never close it). */
     D3D12Sampler(DeviceContext ctx, AddressMode addressModeU, AddressMode addressModeV, FilterMode minFilter,
-                 FilterMode magFilter, int maxAnisotropy, OptionalDouble maxLod, long cpuHandle) {
+                 FilterMode magFilter, int maxAnisotropy, OptionalDouble maxLod, long cpuHandle,
+                 @Nullable ResourceCounters counters) {
         this.ctx = ctx;
         this.addressModeU = addressModeU;
         this.addressModeV = addressModeV;
@@ -41,6 +46,9 @@ public final class D3D12Sampler implements GpuSampler {
         this.maxAnisotropy = maxAnisotropy;
         this.maxLod = maxLod;
         this.cpuHandle = cpuHandle;
+        this.counters = counters;
+
+        ctx.registry().register(this, "sampler");
     }
 
     /** @return CPU handle of the sampler staging descriptor */
@@ -94,6 +102,34 @@ public final class D3D12Sampler implements GpuSampler {
      */
     @Override
     public void close() {
-        throw new UnsupportedOperationException("WP1: if (!closed.compareAndSet(false, true)) return; unregister; defer the staging descriptor free");
+        if (!this.closed.compareAndSet(false, true)) {
+            return;
+        }
+
+        try {
+            this.ctx.registry().unregister(this);
+        } catch (RuntimeException e) {
+            D3D12Log.debug("Failed to unregister a sampler: {}", e.toString());
+        }
+
+        try {
+            this.ctx.defer(this::destroy);
+        } catch (RuntimeException e) {
+            D3D12Log.error("Failed to schedule the release of a Direct3D 12 sampler descriptor", e);
+        }
+    }
+
+    /** Runs from the deferral queue (or inline once the GPU is idle), exactly once. */
+    private void destroy() {
+        try {
+            this.ctx.descriptors().sampler().free(this.cpuHandle);
+        } catch (RuntimeException e) {
+            // the allocator may already be closed when a sampler is closed after the device
+            D3D12Log.debug("Failed to free a sampler descriptor: {}", e.toString());
+        }
+
+        if (this.counters != null) {
+            this.counters.samplerDestroyed();
+        }
     }
 }

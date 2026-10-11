@@ -1,4 +1,4 @@
-// Owner: WP4 (descriptors) - fully implemented pure logic; WP4 owner adds RingTest
+// Owner: WP4 (descriptors) - implemented pure logic (reserve now creates the page before it mutates); tested by RingTest
 package net.caffeinemc.mods.sodium.client.d3d12.descriptor;
 
 /**
@@ -80,6 +80,8 @@ public final class PagedBumpAllocator {
      * @param count descriptors the caller is about to allocate, {@code 1..pageCapacity}
      * @return true if a new page was started
      * @throws IllegalStateException if the ring is exhausted ({@code maxPages} pages)
+     * @throws RuntimeException      whatever {@link PageSource#ensurePage} throws when the next page cannot be created; the
+     *                               allocator is unchanged then (validate first, then mutate)
      */
     public boolean reserve(int count) {
         if (count < 1 || count > this.pageCapacity) {
@@ -95,8 +97,9 @@ public final class PagedBumpAllocator {
                     + this.pageCapacity + " descriptors in one frame)");
         }
 
+        // create the page first: if the heap cannot be created the allocator keeps its previous, consistent state
+        this.source.ensurePage(this.page + 1);
         this.page++;
-        this.source.ensurePage(this.page);
         this.cursor = 0;
         this.epoch++;
 

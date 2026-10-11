@@ -1,6 +1,8 @@
 // Owner: WP1 (device core) - fully implemented shared helper
 package net.caffeinemc.mods.sodium.client.d3d12.core;
 
+import org.jspecify.annotations.Nullable;
+
 import java.util.ArrayList;
 import java.util.List;
 
@@ -36,6 +38,9 @@ public final class DeferralQueue {
     private final ArrayList<Entry> entries = new ArrayList<>();
     private long minTag = Long.MAX_VALUE;
 
+    /** The batch list of {@link #drain}, kept between calls so that a frame with due entries allocates no list. */
+    private @Nullable ArrayList<Entry> spare = new ArrayList<>();
+
     /**
      * @param tag    the frame index after whose completion {@code action} may run
      * @param action must not throw checked exceptions; runs on the render thread
@@ -58,14 +63,16 @@ public final class DeferralQueue {
      * @return the number of entries run
      */
     public int drain(long completed) {
-        List<Entry> ready;
+        ArrayList<Entry> ready;
 
         synchronized (this.lock) {
             if (this.minTag > completed) {
                 return 0;
             }
 
-            ready = new ArrayList<>();
+            // a re-entrant or concurrent drain finds the spare list taken and simply allocates its own
+            ready = this.spare != null ? this.spare : new ArrayList<>();
+            this.spare = null;
 
             int kept = 0;
             long newMin = Long.MAX_VALUE;
@@ -84,13 +91,28 @@ public final class DeferralQueue {
                 }
             }
 
-            this.entries.subList(kept, this.entries.size()).clear();
+            for (int i = this.entries.size() - 1; i >= kept; i--) {
+                this.entries.remove(i);
+            }
+
             this.minTag = newMin;
         }
 
-        runAll(ready);
+        int count = ready.size();
 
-        return ready.size();
+        try {
+            runAll(ready);
+        } finally {
+            ready.clear();
+
+            synchronized (this.lock) {
+                if (this.spare == null) {
+                    this.spare = ready;
+                }
+            }
+        }
+
+        return count;
     }
 
     /**
@@ -128,9 +150,9 @@ public final class DeferralQueue {
     }
 
     private static void runAll(List<Entry> batch) {
-        for (Entry entry : batch) {
+        for (int i = 0; i < batch.size(); i++) {
             try {
-                entry.action().run();
+                batch.get(i).action().run();
             } catch (VirtualMachineError error) {
                 throw error;
             } catch (Throwable t) {

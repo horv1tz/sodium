@@ -1,11 +1,15 @@
 // Owner: WP1 (device core) - implemented; WP1 owner adds StateTrackerTest (oracle + random sequences)
 package net.caffeinemc.mods.sodium.client.d3d12.state;
 
+import net.caffeinemc.mods.sodium.client.d3d12.interop.abi.Enums;
 import net.caffeinemc.mods.sodium.client.d3d12.interop.abi.structs.D3D12ResourceBarrier;
+import net.caffeinemc.mods.sodium.client.d3d12.interop.abi.structs.D3D12ResourceTransitionBarrier;
 import net.caffeinemc.mods.sodium.client.d3d12.interop.d3d12.D3D12GraphicsCommandList;
+import net.caffeinemc.mods.sodium.client.d3d12.interop.d3d12.D3D12Resource;
 
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
 import java.util.Arrays;
 
 /**
@@ -220,14 +224,28 @@ public final class ResourceStateTracker {
         this.ensureNativeCapacity(this.count);
 
         for (int i = 0; i < this.count; i++) {
-            MemorySegment slot = this.nativeBarriers.asSlice(i * D3D12ResourceBarrier.SIZE, D3D12ResourceBarrier.SIZE);
-
-            D3D12GraphicsCommandList.writeTransitionBarrier(slot, this.resources[i].resource(), this.subresources[i],
-                    this.before[i], this.after[i], 0);
+            writeBarrier(this.nativeBarriers, i, this.resources[i].resource(), this.subresources[i], this.before[i], this.after[i]);
         }
 
         list.resourceBarrier(this.count, this.nativeBarriers);
         this.clearPending();
+    }
+
+    /**
+     * Writes element {@code index} of a {@code D3D12_RESOURCE_BARRIER} array with a transition barrier, using the
+     * generated absolute offsets: no {@code MemorySegment} slice is created per barrier (the same bytes as
+     * {@code D3D12GraphicsCommandList.writeTransitionBarrier}, which an L0 test compares against).
+     */
+    static void writeBarrier(MemorySegment array, int index, D3D12Resource resource, int subresource, int before, int after) {
+        long barrier = (long) index * D3D12ResourceBarrier.SIZE;
+        long transition = barrier + D3D12ResourceBarrier.OFFSET_TRANSITION;
+
+        array.set(ValueLayout.JAVA_INT_UNALIGNED, barrier + D3D12ResourceBarrier.OFFSET_TYPE, Enums.ResourceBarrierType.TRANSITION);
+        array.set(ValueLayout.JAVA_INT_UNALIGNED, barrier + D3D12ResourceBarrier.OFFSET_FLAGS, Enums.ResourceBarrierFlags.NONE);
+        array.set(ValueLayout.ADDRESS_UNALIGNED, transition + D3D12ResourceTransitionBarrier.OFFSET_P_RESOURCE, resource.ptr());
+        array.set(ValueLayout.JAVA_INT_UNALIGNED, transition + D3D12ResourceTransitionBarrier.OFFSET_SUBRESOURCE, subresource);
+        array.set(ValueLayout.JAVA_INT_UNALIGNED, transition + D3D12ResourceTransitionBarrier.OFFSET_STATE_BEFORE, before);
+        array.set(ValueLayout.JAVA_INT_UNALIGNED, transition + D3D12ResourceTransitionBarrier.OFFSET_STATE_AFTER, after);
     }
 
     /** Test seam: hands every pending transition to {@code sink} (in queue order) and clears the batch. */

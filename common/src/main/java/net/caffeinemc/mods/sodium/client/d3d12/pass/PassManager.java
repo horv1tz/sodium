@@ -1,9 +1,15 @@
-// Owner: WP3 (pipelines + render pass)
+// Owner: WP3 (pipelines + render pass) - implemented
 package net.caffeinemc.mods.sodium.client.d3d12.pass;
 
 import net.caffeinemc.mods.sodium.client.d3d12.command.ClearEngine;
 import net.caffeinemc.mods.sodium.client.d3d12.command.CommandRecorder;
+import net.caffeinemc.mods.sodium.client.d3d12.core.D3D12Log;
 import net.caffeinemc.mods.sodium.client.d3d12.core.DeviceContext;
+import net.caffeinemc.mods.sodium.client.d3d12.interop.D3D12Exception;
+import net.caffeinemc.mods.sodium.client.d3d12.interop.abi.Enums;
+import org.jspecify.annotations.Nullable;
+
+import java.util.List;
 
 /**
  * What {@code D3D12CommandEncoder} talks to: creates one {@link D3D12RenderPass} per pass and owns the single reusable
@@ -39,6 +45,8 @@ import net.caffeinemc.mods.sodium.client.d3d12.core.DeviceContext;
  * <p>Threading: render thread.
  */
 public final class PassManager implements AutoCloseable {
+    private static final int MAX_COLOR_TARGETS = 8;
+
     private final DeviceContext ctx;
     private final PassBinder binder;
     private final FanIndexBuffer fan;
@@ -55,12 +63,65 @@ public final class PassManager implements AutoCloseable {
         this.binder = new PassBinder(ctx, recorder, clears, this.fan);
     }
 
+    /** Test seam: a manager over a binder with a fake native side. */
+    PassManager(DeviceContext ctx, PassBinder binder, FanIndexBuffer fan) {
+        this.ctx = ctx;
+        this.fan = fan;
+        this.binder = binder;
+    }
+
     /**
      * @return the open pass; valid until {@link D3D12RenderPass#end()}
      * @throws RuntimeException only for fatal conditions (the frontend cannot unwind its {@code isInRenderPass} flag)
      */
     public D3D12RenderPass begin(PassSpec spec) {
-        throw new UnsupportedOperationException("WP3: pass begin sequence, new D3D12RenderPass(ctx, binder, spec)");
+        validate(spec);
+
+        if (this.binder.isOpen()) {
+            throw new IllegalStateException("A render pass is already open");
+        }
+
+        this.ctx.errors().checkHealthy();
+
+        D3D12RenderPass pass = new D3D12RenderPass(this.ctx, this.binder, spec);
+
+        try {
+            this.binder.begin(spec, pass);
+        } catch (D3D12Exception e) {
+            // the tracker and the list were already mutated: the stream cannot be repaired
+            throw this.ctx.errors().fail(e);
+        }
+
+        return pass;
+    }
+
+    /** Pure checks before anything is recorded; the frontend validated the descriptor, this guards the other callers. */
+    private static void validate(PassSpec spec) {
+        List<PassSpec.@Nullable Color> colors = spec.colors();
+        boolean attachment = spec.depth() != null;
+
+        if (colors.size() > MAX_COLOR_TARGETS) {
+            throw new IllegalArgumentException("A render pass has at most " + MAX_COLOR_TARGETS + " colour attachments, not " + colors.size());
+        }
+
+        for (PassSpec.Color color : colors) {
+            if (color != null) {
+                attachment = true;
+
+                if (color.target().dxgiFormat() == Enums.Format.UNKNOWN) {
+                    throw new IllegalArgumentException("A colour attachment has no render target format");
+                }
+            }
+        }
+
+        if (!attachment) {
+            throw new IllegalArgumentException("A render pass needs at least one attachment");
+        }
+
+        if (spec.areaWidth() <= 0 || spec.areaHeight() <= 0 || spec.viewportWidth() <= 0 || spec.viewportHeight() <= 0) {
+            throw new IllegalArgumentException("The render area " + spec.areaWidth() + "x" + spec.areaHeight() + " / viewport "
+                    + spec.viewportWidth() + "x" + spec.viewportHeight() + " is empty");
+        }
     }
 
     DeviceContext context() {
@@ -74,6 +135,12 @@ public final class PassManager implements AutoCloseable {
     /** Idempotent, never throws; called only by {@code D3D12CommandEncoder.shutdown()}. */
     @Override
     public void close() {
-        throw new UnsupportedOperationException("WP3: close the fan index buffer");
+        try {
+            this.binder.close();
+        } catch (RuntimeException e) {
+            D3D12Log.error("Failed to release the pass binder", e);
+        }
+
+        this.fan.close();
     }
 }

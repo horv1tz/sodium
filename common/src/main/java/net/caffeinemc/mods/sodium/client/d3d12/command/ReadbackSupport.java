@@ -1,8 +1,11 @@
-// Owner: WP2 (commands + transient memory)
+// Owner: WP2 (commands + transient memory) - implemented
 package net.caffeinemc.mods.sodium.client.d3d12.command;
 
+import net.caffeinemc.mods.sodium.client.d3d12.core.D3D12Log;
 import net.caffeinemc.mods.sodium.client.d3d12.core.DeviceContext;
 import org.jspecify.annotations.Nullable;
+
+import java.util.Objects;
 
 /**
  * Timing and delivery of read-back callbacks (spec 01 section 4.10, proposal A section 2.g).
@@ -34,11 +37,46 @@ public final class ReadbackSupport {
     /**
      * Queues {@code callback} for delivery as described above.
      *
+     * <p>The entry is tagged with the current frame (the frame that recorded the copy). Because
+     * {@code DeferralQueue.drain} only runs entries whose tag has completed, and {@code shutdown} drains everything after
+     * the GPU idle wait, the entry itself re-checks {@code clock.completed() >= tag}: a callback whose frame was never
+     * submitted is not delivered, but its {@code cleanup} always runs.
+     *
      * @param callback the frontend's callback
      * @param cleanup  releases transient resources of the copy (may be null); runs whether or not the callback is delivered
      */
     public void deliverAfterCompletion(Runnable callback, @Nullable Runnable cleanup) {
-        throw new UnsupportedOperationException("WP2: ctx.deferral().add(ctx.clock().current(), entry) with the completed-check");
+        Objects.requireNonNull(callback, "callback");
+
+        long tag = this.ctx.clock().current();
+
+        this.ctx.deferral().add(tag, () -> this.deliver(tag, callback, cleanup));
+    }
+
+    private void deliver(long tag, Runnable callback, @Nullable Runnable cleanup) {
+        try {
+            if (this.ctx.clock().completed() >= tag) {
+                try {
+                    callback.run();
+                } catch (VirtualMachineError error) {
+                    throw error;
+                } catch (Throwable t) {
+                    D3D12Log.error("A read-back callback threw an exception", t);
+                }
+            } else {
+                D3D12Log.debug("Dropping a read-back callback: frame {} never completed (completed {})", tag, this.ctx.clock().completed());
+            }
+        } finally {
+            if (cleanup != null) {
+                try {
+                    cleanup.run();
+                } catch (VirtualMachineError error) {
+                    throw error;
+                } catch (Throwable t) {
+                    D3D12Log.error("Releasing the resources of a read-back failed", t);
+                }
+            }
+        }
     }
 
     DeviceContext context() {

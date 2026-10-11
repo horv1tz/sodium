@@ -1,4 +1,4 @@
-// Owner: WP4 (descriptors) - fully implemented pure logic, OPTIONAL optimisation used by WP3's PassBinder
+// Owner: WP4 (descriptors) - implemented pure logic, OPTIONAL optimisation used by WP3's PassBinder; tested by DescriptorTableCacheTest
 package net.caffeinemc.mods.sodium.client.d3d12.descriptor;
 
 import java.util.Arrays;

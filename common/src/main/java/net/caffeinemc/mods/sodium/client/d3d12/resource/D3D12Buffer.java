@@ -136,8 +136,8 @@ public abstract class D3D12Buffer extends BaseGpuBuffer {
             throw new IllegalStateException("Buffer is not writable");
         }
 
-        if (offset < 0L || length < 0L || offset + length > this.size()) {
-            throw new IllegalArgumentException("Mapped range [" + offset + ", " + (offset + length) + ") is outside the buffer of size " + this.size());
+        if (offset < 0L || length < 0L || offset > this.size() - length) {
+            throw new IllegalArgumentException("Mapped range at offset " + offset + " with length " + length + " is outside the buffer of size " + this.size());
         }
 
         if (length > Integer.MAX_VALUE) {

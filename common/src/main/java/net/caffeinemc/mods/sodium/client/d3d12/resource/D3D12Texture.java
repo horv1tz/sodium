@@ -1,12 +1,15 @@
-// Owner: WP1 (device core)
+// Owner: WP1 (device core) - implemented
 package net.caffeinemc.mods.sodium.client.d3d12.resource;
 
 import com.mojang.renderpearl.api.GpuFormat;
 import com.mojang.renderpearl.backend.common.BaseGpuTexture;
+import com.mojang.renderpearl.api.textures.GpuTexture;
+import net.caffeinemc.mods.sodium.client.d3d12.core.D3D12Log;
 import net.caffeinemc.mods.sodium.client.d3d12.core.DeviceContext;
 import net.caffeinemc.mods.sodium.client.d3d12.core.FormatInfo;
 import net.caffeinemc.mods.sodium.client.d3d12.interop.d3d12.D3D12Resource;
 import net.caffeinemc.mods.sodium.client.d3d12.state.TrackedResource;
+import org.jspecify.annotations.Nullable;
 
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -51,15 +54,28 @@ public final class D3D12Texture extends BaseGpuTexture {
     private final AtomicBoolean closed = new AtomicBoolean();
     private final AtomicInteger refs = new AtomicInteger(1);
     private final AtomicBoolean destroyed = new AtomicBoolean();
+    private final @Nullable ResourceCounters counters;
+
+    /** Lazily created RTV / DSV staging descriptors, one slot per mip (0 = not created). Render thread only. */
+    private long @Nullable [] rtvHandles;
+    private long @Nullable [] dsvHandles;
+
+    /** Without leak counters; kept for the skeleton self tests and for tests that build textures around no native resource. */
+    D3D12Texture(DeviceContext ctx, String label, int usage, GpuFormat format, int width, int height, int depthOrLayers,
+                 int mipLevels, FormatInfo formatInfo, @Nullable D3D12Resource resource, TrackedResource tracked) {
+        this(ctx, label, usage, format, width, height, depthOrLayers, mipLevels, formatInfo, resource, tracked, null);
+    }
 
     D3D12Texture(DeviceContext ctx, String label, int usage, GpuFormat format, int width, int height, int depthOrLayers,
-                 int mipLevels, FormatInfo formatInfo, D3D12Resource resource, TrackedResource tracked) {
+                 int mipLevels, FormatInfo formatInfo, @Nullable D3D12Resource resource, TrackedResource tracked,
+                 @Nullable ResourceCounters counters) {
         super(usage, label, format, width, height, depthOrLayers, mipLevels);
 
         this.ctx = ctx;
         this.formatInfo = formatInfo;
         this.resource = resource;
         this.tracked = tracked;
+        this.counters = counters;
     }
 
     public D3D12Resource resource() {
@@ -98,14 +114,83 @@ public final class D3D12Texture extends BaseGpuTexture {
         return mip + layer * this.getMipLevels();
     }
 
-    /** @return CPU handle of the RTV of {@code mip} (layer 0), created on first use; colour textures only */
+    /**
+     * @return CPU handle of the RTV of {@code mip} (layer 0), created on first use and cached until the texture is
+     * destroyed; colour textures created with {@code USAGE_RENDER_ATTACHMENT} only
+     * @throws IllegalStateException    for depth textures, textures without {@code RENDER_ATTACHMENT} and destroyed textures
+     * @throws IllegalArgumentException for a mip outside the chain
+     */
     public long rtv(int mip) {
-        throw new UnsupportedOperationException("WP1: lazily create + cache one RTV per mip in the RTV staging allocator");
+        if (this.formatInfo.depth()) {
+            throw new IllegalStateException("Texture '" + this.getLabel() + "' is a depth texture and has no render target view");
+        }
+
+        this.checkTargetUsage(mip);
+
+        long[] cache = this.rtvHandles;
+
+        if (cache == null) {
+            this.rtvHandles = cache = new long[this.getMipLevels()];
+        }
+
+        long handle = cache[mip];
+
+        if (handle == 0L) {
+            this.checkAlive();
+            cache[mip] = handle = this.ctx.resources().createRtv(this, mip);
+        }
+
+        return handle;
     }
 
-    /** @return CPU handle of the DSV of {@code mip} (layer 0), created on first use; depth textures only */
+    /**
+     * @return CPU handle of the DSV of {@code mip} (layer 0), created on first use and cached until the texture is
+     * destroyed; depth textures created with {@code USAGE_RENDER_ATTACHMENT} only
+     * @throws IllegalStateException    for colour textures, textures without {@code RENDER_ATTACHMENT} and destroyed textures
+     * @throws IllegalArgumentException for a mip outside the chain
+     */
     public long dsv(int mip) {
-        throw new UnsupportedOperationException("WP1: lazily create + cache one DSV per mip in the DSV staging allocator");
+        if (!this.formatInfo.depth()) {
+            throw new IllegalStateException("Texture '" + this.getLabel() + "' is a colour texture and has no depth stencil view");
+        }
+
+        this.checkTargetUsage(mip);
+
+        long[] cache = this.dsvHandles;
+
+        if (cache == null) {
+            this.dsvHandles = cache = new long[this.getMipLevels()];
+        }
+
+        long handle = cache[mip];
+
+        if (handle == 0L) {
+            this.checkAlive();
+            cache[mip] = handle = this.ctx.resources().createDsv(this, mip);
+        }
+
+        return handle;
+    }
+
+    private void checkTargetUsage(int mip) {
+        if (mip < 0 || mip >= this.getMipLevels()) {
+            throw new IllegalArgumentException("Mip level " + mip + " is outside [0, " + this.getMipLevels() + ") of texture '" + this.getLabel() + "'");
+        }
+
+        if ((this.usage() & GpuTexture.USAGE_RENDER_ATTACHMENT) == 0) {
+            throw new IllegalStateException("Texture '" + this.getLabel() + "' was not created with USAGE_RENDER_ATTACHMENT");
+        }
+    }
+
+    private void checkAlive() {
+        if (this.refs.get() == 0) {
+            throw new IllegalStateException("Texture was already destroyed: " + this.getLabel());
+        }
+    }
+
+    /** @return the current reference count (1 for the texture itself while open, plus one per open view); for tests */
+    int referenceCount() {
+        return this.refs.get();
     }
 
     /**
@@ -141,7 +226,44 @@ public final class D3D12Texture extends BaseGpuTexture {
      * inline after the GPU idle wait), exactly once.
      */
     private void destroy() {
-        throw new UnsupportedOperationException("WP1: free the RTV/DSV staging descriptors, release the resource");
+        try {
+            this.freeHandles(this.rtvHandles, true);
+            this.freeHandles(this.dsvHandles, false);
+        } finally {
+            this.rtvHandles = null;
+            this.dsvHandles = null;
+        }
+
+        if (this.resource != null) {
+            try {
+                this.resource.release();
+            } catch (RuntimeException e) {
+                D3D12Log.warn("Failed to release texture '{}': {}", this.getLabel(), e.toString());
+            }
+        }
+
+        if (this.counters != null) {
+            this.counters.textureDestroyed();
+        }
+    }
+
+    private void freeHandles(long @Nullable [] handles, boolean color) {
+        if (handles == null) {
+            return;
+        }
+
+        for (long handle : handles) {
+            if (handle == 0L) {
+                continue;
+            }
+
+            try {
+                (color ? this.ctx.descriptors().rtv() : this.ctx.descriptors().dsv()).free(handle);
+            } catch (RuntimeException e) {
+                // the allocator may already be closed when a texture is closed after the device
+                D3D12Log.debug("Failed to free a target view descriptor of texture '{}': {}", this.getLabel(), e.toString());
+            }
+        }
     }
 
     /** @return not closed and device alive (a texture with open views stays <em>usable as an attachment/SRV</em> through them) */
