@@ -86,6 +86,8 @@
   "sodium.options.pixel_filtering_mode.tooltip" : "Controls the appearance of edges between pixels within block textures. \"Nearest\" mode results in sharp pixel boundaries, while \"Linear\" mode makes them a little blurry. \"Nearest\" can be slightly faster.",
   "sodium.options.pixel_filtering_mode.nearest" : "Nearest",
   "sodium.options.pixel_filtering_mode.linear" : "Linear",
+  "sodium.options.direct3d12.name": "Use Direct3D 12 (Experimental)",
+  "sodium.options.direct3d12.tooltip": "When enabled, the game tries to render with Direct3D 12 before the graphics API selected above, and falls back to that API automatically if Direct3D 12 cannot be used. Requires a game restart. This renderer is experimental and may be slower or less stable than OpenGL and Vulkan.",
   "sodium.options.use_no_error_context.name": "Use No Error Context",
   "sodium.options.use_no_error_context.tooltip": "When enabled, the OpenGL context will be created with error checking disabled. This slightly improves rendering performance, but it can make debugging sudden unexplained crashes much harder.",
   "sodium.options.buttons.undo": "Undo",

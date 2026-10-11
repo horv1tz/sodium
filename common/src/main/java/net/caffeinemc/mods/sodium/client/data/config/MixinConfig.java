@@ -26,6 +26,8 @@ public class MixinConfig {
         // You must manually add a rule for any new mixins not covered by an existing package rule.
         this.addMixinRule("core", true); // TODO: Don't actually allow the user to disable this
 
+        this.addMixinRule("d3d12", true);
+
         this.addMixinRule("debug", true);
 
         this.addMixinRule("features", true);

@@ -57,6 +57,11 @@ public class SodiumOptions {
 
     public static class AdvancedSettings {
         public boolean enableMemoryTracing = false;
+
+        /**
+         * Try the experimental Direct3D 12 renderer before the graphics API chosen in the video settings (Windows only).
+         */
+        public boolean useD3d12 = false;
     }
 
     public static class DebugSettings {

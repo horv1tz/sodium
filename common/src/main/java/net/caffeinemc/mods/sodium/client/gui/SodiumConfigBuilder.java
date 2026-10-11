@@ -11,6 +11,7 @@ import net.caffeinemc.mods.sodium.api.config.option.OptionImpact;
 import net.caffeinemc.mods.sodium.api.config.option.Range;
 import net.caffeinemc.mods.sodium.api.config.structure.*;
 import net.caffeinemc.mods.sodium.client.SodiumClientMod;
+import net.caffeinemc.mods.sodium.client.compatibility.environment.OsUtils;
 import net.caffeinemc.mods.sodium.client.compatibility.workarounds.Workarounds;
 import net.caffeinemc.mods.sodium.client.gui.options.FullscreenMode;
 import net.caffeinemc.mods.sodium.client.gui.options.Toggle;
@@ -323,6 +324,19 @@ public class SodiumConfigBuilder implements ConfigEntryPoint {
                 .setDefaultValue(PreferredGraphicsApi.DEFAULT)
                 .setFlags(OptionFlag.REQUIRES_GAME_RESTART)
                 .setBinding((value) -> this.vanillaOpts.preferredGraphicsBackend().set(value), () -> this.vanillaOpts.preferredGraphicsBackend().get()));
+
+        if (OsUtils.getOs() == OsUtils.OperatingSystem.WIN) {
+            platformGroup.addOption(
+                    builder.createBooleanOption(Identifier.parse("sodium:general.direct3d12"))
+                            .setStorageHandler(this.sodiumStorage)
+                            .setName(Component.translatable("sodium.options.direct3d12.name"))
+                            .setTooltip(Component.translatable("sodium.options.direct3d12.tooltip"))
+                            .setDefaultValue(DEFAULTS.advanced.useD3d12)
+                            .setBinding(value -> this.sodiumOpts.advanced.useD3d12 = value, () -> this.sodiumOpts.advanced.useD3d12)
+                            .setEnabledProvider(state -> !"false".equalsIgnoreCase(System.getProperty("sodium.graphics.d3d12")))
+                            .setFlags(OptionFlag.REQUIRES_GAME_RESTART)
+            );
+        }
 
         if (MacosUtil.IS_MACOS) {
             platformGroup.addOption(
